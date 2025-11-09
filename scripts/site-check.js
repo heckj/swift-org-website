@@ -628,7 +628,6 @@ function printSummary(report) {
   const brokenImages = []
   const redirects = []
   const isolatedPages = []
-  const errors = []
 
   for (const [pageUrl, pageData] of Object.entries(report.pages)) {
     if (pageData.issues.brokenLinks.length > 0) {
@@ -658,25 +657,36 @@ function printSummary(report) {
       isolatedPages.push(pageUrl)
     }
     if (pageData.issues.error) {
-      errors.push({
-        url: pageUrl,
-        error: pageData.issues.error,
-      })
+      // Add to broken links list so they appear in the broken links report
+      // Include error pages even if they have no referrers
+      if (pageData.incomingLinks.length > 0) {
+        pageData.incomingLinks.forEach((referrer) => {
+          brokenLinks.push({
+            url: pageUrl,
+            referrer: referrer,
+            error: pageData.issues.error,
+          })
+        })
+      } else {
+        // Error page with no incoming links - still report it
+        brokenLinks.push({
+          url: pageUrl,
+          referrer: '(no referrers)',
+          error: pageData.issues.error,
+        })
+      }
     }
   }
 
   if (brokenLinks.length > 0) {
     log(`\n❌ Broken Links: ${brokenLinks.length}`, 'red')
-    brokenLinks.slice(0, 10).forEach((link) => {
+    brokenLinks.forEach((link) => {
       log(`  ${link.url}`, 'red')
+      if (link.error) {
+        log(`    Error: ${link.error}`, 'red')
+      }
       log(`    Referenced by: ${link.referrer}`, 'yellow')
     })
-    if (brokenLinks.length > 10) {
-      log(
-        `  ... and ${brokenLinks.length - 10} more (see report file)`,
-        'yellow',
-      )
-    }
   } else {
     log(`\n✅ No broken links found`, 'green')
   }
@@ -715,33 +725,11 @@ function printSummary(report) {
   if (isolatedPages.length > 0) {
     log(`\n⚠️  Isolated Pages: ${isolatedPages.length}`, 'yellow')
     log('  (Pages with no incoming links from the site)', 'yellow')
-    isolatedPages.slice(0, 10).forEach((page) => {
+    isolatedPages.forEach((page) => {
       log(`  ${page}`, 'yellow')
     })
-    if (isolatedPages.length > 10) {
-      log(
-        `  ... and ${isolatedPages.length - 10} more (see report file)`,
-        'yellow',
-      )
-    }
   } else {
     log(`\n✅ No isolated pages found`, 'green')
-  }
-
-  if (errors.length > 0) {
-    log(`\n❌ Errors: ${errors.length}`, 'red')
-    errors.forEach((err) => {
-      log(`  ${err.url}: ${err.error}`, 'red')
-      if (err.referrers && err.referrers.length > 0) {
-        log(
-          `    Referenced by: ${err.referrers.slice(0, 3).join(', ')}`,
-          'yellow',
-        )
-        if (err.referrers.length > 3) {
-          log(`    ... and ${err.referrers.length - 3} more`, 'yellow')
-        }
-      }
-    })
   }
 
   if (report.summary.externalDomains > 0) {
