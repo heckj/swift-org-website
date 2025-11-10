@@ -38,17 +38,16 @@
 
 const { chromium } = require('playwright')
 const fs = require('fs').promises
-const path = require('path')
 
 // Configuration - can be overridden via environment variables
 const CONFIG = {
   baseUrl: process.env.SITE_URL || 'http://localhost:4000', // Target site URL
-  maxPages: parseInt(process.env.MAX_PAGES) || 1000, // Limit crawl to prevent runaway
+  maxPages: parseInt(process.env.MAX_PAGES, 10) || 1000, // Limit crawl to prevent runaway
   timeout: 30000, // Page load timeout in milliseconds
   checkExternalLinks: process.env.CHECK_EXTERNAL === 'true', // Currently unused, reserved for future
   concurrency: 3, // Currently unused, reserved for concurrent crawling
   outputFile: 'site-check-report.json', // Where to save the detailed JSON report
-  delayBetweenRequests: parseInt(process.env.CRAWL_DELAY) || 50, // Delay in ms between page requests (default 50ms)
+  delayBetweenRequests: parseInt(process.env.CRAWL_DELAY, 10) || 50, // Delay in ms between page requests (default 50ms)
 }
 
 // State tracking - shared across all crawl operations
@@ -140,7 +139,7 @@ function stripBaseUrl(url, baseUrl) {
 
 // Extract all links and images from the current page using browser context
 // Links are categorized into header, footer, and content buckets
-async function extractLinksAndImages(page, currentUrl) {
+async function extractLinksAndImages(page) {
   return await page.evaluate(() => {
     const images = []
 
@@ -194,7 +193,7 @@ async function extractLinksAndImages(page, currentUrl) {
 }
 
 // Main crawl function - visits a page, extracts links/images, checks validity
-async function crawlPage(browser, url, depth = 0) {
+async function crawlPage(browser, url) {
   // Skip if already visited or reached max page limit from CONFIG
   if (state.visited.has(url) || state.visited.size >= CONFIG.maxPages) {
     return
@@ -253,7 +252,7 @@ async function crawlPage(browser, url, depth = 0) {
 
     // Extract links and images
     const { headerLinks, footerLinks, contentLinks, images } =
-      await extractLinksAndImages(page, url)
+      await extractLinksAndImages(page)
 
     // Initialize page data in state
     if (!state.pages.has(url)) {
@@ -297,7 +296,7 @@ async function crawlPage(browser, url, depth = 0) {
           state.pages.get(normalizedUrl).incomingLinks.push(url)
 
           // Add to crawl queue if not yet visited (O(1) Set lookup)
-          if (!state.visited.has(normalizedUrl) && !state.toVisit.has(normalizedUrl)) {
+          if (!state.visited.has(normalizedUrl)) {
             state.toVisit.add(normalizedUrl)
           }
         } else {
@@ -399,7 +398,22 @@ async function validateLinks(browser) {
             status: 404,
           })
         }
+
+        // Add delay between validation requests to avoid overwhelming the server
+        if (CONFIG.delayBetweenRequests > 0) {
+          await sleep(CONFIG.delayBetweenRequests)
+        }
       } catch (error) {
+        // Track validation errors consistently with crawl errors
+        const referrers = state.pages.has(link)
+          ? state.pages.get(link).incomingLinks
+          : []
+
+        state.errors.push({
+          url: link,
+          error: `Validation failed: ${error.message}`,
+          referrers,
+        })
         log(`  Error checking ${link}: ${error.message}`, 'red')
       }
     }
@@ -455,7 +469,6 @@ async function loadSitemap(browser) {
         `  Sitemap not found (HTTP ${response?.status() || 'unknown'})`,
         'yellow',
       )
-      await page.close()
       return null
     }
 
@@ -477,8 +490,6 @@ async function loadSitemap(browser) {
       }
     }
 
-    await page.close()
-
     if (urls.length === 0) {
       log(`  Sitemap found but contains no valid URLs`, 'yellow')
       return null
@@ -488,8 +499,9 @@ async function loadSitemap(browser) {
     return urls
   } catch (error) {
     log(`  Error loading sitemap: ${error.message}`, 'yellow')
-    await page.close()
     return null
+  } finally {
+    await page.close()
   }
 }
 
@@ -522,11 +534,6 @@ function generateReport() {
     const error = state.errors.find((e) => e.url === url)
 
     // Find broken links that this page links to
-    const allOutgoingLinks = [
-      ...data.outgoingLinks.header,
-      ...data.outgoingLinks.footer,
-      ...data.outgoingLinks.content,
-    ]
     const brokenLinksFromThisPage = state.brokenLinks
       .filter(
         (bl) =>
