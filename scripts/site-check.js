@@ -54,8 +54,7 @@ const CONFIG = {
 // State tracking - shared across all crawl operations
 const state = {
   visited: new Set(), // URLs already crawled
-  toVisit: [], // Queue of URLs to crawl next (FIFO array)
-  toVisitSet: new Set(), // Fast O(1) lookup for queue membership
+  toVisit: new Set(), // Set of URLs to crawl next
   pages: new Map(), // url -> { outgoingLinks: {header: [], footer: [], content: []}, images: [], incomingLinks: [] }
   brokenLinks: [], // Links that returned 404
   brokenImages: new Map(), // Map of broken image URL -> { pages: [], alt: string }
@@ -298,12 +297,8 @@ async function crawlPage(browser, url, depth = 0) {
           state.pages.get(normalizedUrl).incomingLinks.push(url)
 
           // Add to crawl queue if not yet visited (O(1) Set lookup)
-          if (
-            !state.visited.has(normalizedUrl) &&
-            !state.toVisitSet.has(normalizedUrl)
-          ) {
-            state.toVisit.push(normalizedUrl)
-            state.toVisitSet.add(normalizedUrl)
+          if (!state.visited.has(normalizedUrl) && !state.toVisit.has(normalizedUrl)) {
+            state.toVisit.add(normalizedUrl)
           }
         } else {
           // External link - track the domain
@@ -761,10 +756,7 @@ async function main() {
       // Use sitemap URLs as starting point
       log(`Using sitemap URLs as crawl queue`, 'green')
       for (const url of sitemapUrls) {
-        if (!state.toVisitSet.has(url)) {
-          state.toVisit.push(url)
-          state.toVisitSet.add(url)
-        }
+        state.toVisit.add(url)
       }
     } else {
       // Fall back to starting from homepage
@@ -773,20 +765,20 @@ async function main() {
         `   This may miss pages not linked from the site navigation\n`,
         'yellow',
       )
-      state.toVisit.push(CONFIG.baseUrl)
-      state.toVisitSet.add(CONFIG.baseUrl)
+      state.toVisit.add(CONFIG.baseUrl)
     }
 
     log('') // Empty line before crawl starts
 
     // Crawl pages breadth-first until queue empty or hit CONFIG.maxPages
-    while (state.toVisit.length > 0 && state.visited.size < CONFIG.maxPages) {
-      const url = state.toVisit.shift()
-      state.toVisitSet.delete(url) // Remove from Set when dequeuing
+    while (state.toVisit.size > 0 && state.visited.size < CONFIG.maxPages) {
+      // Get and remove first URL from Set (convert to array to get first element)
+      const url = state.toVisit.values().next().value
+      state.toVisit.delete(url)
       await crawlPage(browser, url)
 
       // Add delay between requests to avoid overwhelming the server
-      if (state.toVisit.length > 0 && CONFIG.delayBetweenRequests > 0) {
+      if (state.toVisit.size > 0 && CONFIG.delayBetweenRequests > 0) {
         await sleep(CONFIG.delayBetweenRequests)
       }
     }
