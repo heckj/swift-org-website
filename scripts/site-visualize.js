@@ -599,126 +599,128 @@ function generateHTML(report, layers, pageMetadata, stats) {
       });
     });
 
-    // Setup SVG with wider spacing for readability
-    const margin = { top: 40, right: 200, bottom: 40, left: 150 };
-
-    // Much wider layout - allow horizontal scrolling
-    const maxNodesInLayer = Math.max(...Object.values(DATA.layers).map(arr => arr.length));
-    const width = Math.max(2000, maxNodesInLayer * 80); // 80px per node minimum
-
-    // Taller for isolated pages
-    const isolatedCount = DATA.layers.isolated ? DATA.layers.isolated.length : 0;
-    const isolatedBandHeight = 400; // Tall band for isolated pages
-    const baseHeight = Math.max(1200, Object.keys(DATA.layers).length * 120);
-    const height = baseHeight + (isolatedCount > 0 ? isolatedBandHeight : 0);
+    // Setup SVG for force-directed layout
+    const width = 2400;
+    const height = 2400;
+    const centerX = width / 2;
+    const centerY = height / 2;
 
     const svg = d3.select('#visualization')
       .attr('width', width)
-      .attr('height', height);
+      .attr('height', height)
+      .attr('viewBox', \`0 0 \${width} \${height}\`);
 
-    const g = svg.append('g')
-      .attr('transform', \`translate(\${margin.left},\${margin.top})\`);
+    const g = svg.append('g');
 
-    const innerWidth = width - margin.left - margin.right;
-    const innerHeight = height - margin.top - margin.bottom;
-
-    // Calculate positions
+    // Calculate radial positions based on layer
     const layerNumbers = Object.keys(DATA.layers).filter(k => k !== 'isolated').map(Number).sort((a,b) => a-b);
-    const normalLayersHeight = innerHeight - isolatedBandHeight;
-    const layerHeight = normalLayersHeight / (layerNumbers.length + 1);
+    const maxLayer = Math.max(...layerNumbers);
+    const radiusStep = Math.min(180, (Math.min(width, height) / 2 - 100) / (maxLayer + 2));
 
-    // Position nodes by layer
+    // Assign target radius for each node based on layer
     nodes.forEach(node => {
       if (node.layer === 'isolated') {
-        // Special layout for isolated pages - arrange in a grid within a tall band
-        const isolatedNodes = nodes.filter(n => n.layer === 'isolated');
-        const nodeIndex = isolatedNodes.indexOf(node);
-
-        // Arrange in rows within the isolated band
-        const nodesPerRow = Math.ceil(Math.sqrt(isolatedNodes.length * 2)); // Wider than tall
-        const rowIndex = Math.floor(nodeIndex / nodesPerRow);
-        const colIndex = nodeIndex % nodesPerRow;
-
-        const isolatedStartY = normalLayersHeight + 50; // Start of isolated band
-        const rowSpacing = isolatedBandHeight / Math.ceil(isolatedNodes.length / nodesPerRow);
-        const colSpacing = innerWidth / (nodesPerRow + 1);
-
-        node.x = (colIndex + 1) * colSpacing;
-        node.y = isolatedStartY + rowIndex * rowSpacing;
+        // Isolated pages go to outermost ring
+        node.targetRadius = (maxLayer + 2) * radiusStep;
+      } else if (node.layer === 0) {
+        // Home at center
+        node.targetRadius = 0;
       } else {
-        // Normal layer positioning
-        const layerIndex = layerNumbers.indexOf(Number(node.layer));
-        node.y = layerIndex * layerHeight;
+        // Other layers at increasing radii
+        node.targetRadius = node.layer * radiusStep;
+      }
 
-        // Distribute horizontally within layer with more space
-        const layerNodes = nodes.filter(n => n.layer === node.layer);
-        const nodeIndex = layerNodes.indexOf(node);
-        const spacing = innerWidth / (layerNodes.length + 1);
-        node.x = (nodeIndex + 1) * spacing;
+      // Initialize position at target radius with random angle
+      const angle = Math.random() * 2 * Math.PI;
+      node.x = centerX + node.targetRadius * Math.cos(angle);
+      node.y = centerY + node.targetRadius * Math.sin(angle);
+    });
+
+    // Draw concentric circles for layer guides
+    const layerGuides = g.append('g').attr('class', 'layer-guides');
+
+    layerNumbers.forEach((layerNum) => {
+      const radius = layerNum * radiusStep;
+      if (radius > 0) {
+        layerGuides.append('circle')
+          .attr('cx', centerX)
+          .attr('cy', centerY)
+          .attr('r', radius)
+          .attr('fill', 'none')
+          .attr('stroke', '#e5e7eb')
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4,4');
       }
     });
 
+    // Isolated layer guide
+    const isolatedCount = DATA.layers.isolated ? DATA.layers.isolated.length : 0;
+    if (isolatedCount > 0) {
+      const isolatedRadius = (maxLayer + 2) * radiusStep;
+      layerGuides.append('circle')
+        .attr('cx', centerX)
+        .attr('cy', centerY)
+        .attr('r', isolatedRadius)
+        .attr('fill', 'none')
+        .attr('stroke', '#f97316')
+        .attr('stroke-width', 2)
+        .attr('stroke-dasharray', '4,4');
+    }
+
     // Draw layer labels
-    layerNumbers.forEach((layerNum, index) => {
+    layerNumbers.forEach((layerNum) => {
+      const radius = layerNum * radiusStep;
       const layerName = layerNum === 0 ? 'Home' :
                         layerNum === 1 ? 'Header' :
                         layerNum === 2 ? 'Footer' :
                         \`Layer \${layerNum} (\${layerNum - 2} clicks)\`;
 
-      g.append('text')
-        .attr('class', 'layer-label')
-        .attr('x', -10)
-        .attr('y', index * layerHeight)
-        .attr('text-anchor', 'end')
-        .text(layerName);
+      if (radius > 0) {
+        g.append('text')
+          .attr('class', 'layer-label')
+          .attr('x', centerX + radius + 10)
+          .attr('y', centerY)
+          .attr('text-anchor', 'start')
+          .attr('dominant-baseline', 'middle')
+          .text(layerName);
+      }
     });
 
-    // Isolated layer label (centered in the tall band)
+    // Isolated layer label
     if (isolatedCount > 0) {
+      const isolatedRadius = (maxLayer + 2) * radiusStep;
       g.append('text')
         .attr('class', 'layer-label')
-        .attr('x', -10)
-        .attr('y', normalLayersHeight + isolatedBandHeight / 2)
-        .attr('text-anchor', 'end')
+        .attr('x', centerX + isolatedRadius + 10)
+        .attr('y', centerY)
+        .attr('text-anchor', 'start')
+        .attr('dominant-baseline', 'middle')
         .attr('fill', '#f97316')
         .text(\`Isolated (\${isolatedCount})\`);
     }
 
     // Draw links
-    g.selectAll('.link')
+    const linkElements = g.selectAll('.link')
       .data(links)
       .join('line')
-      .attr('class', d => \`link link-\${d.type}\`)
-      .attr('x1', d => {
-        const source = nodes.find(n => n.id === d.source);
-        return source ? source.x : 0;
-      })
-      .attr('y1', d => {
-        const source = nodes.find(n => n.id === d.source);
-        return source ? source.y : 0;
-      })
-      .attr('x2', d => {
-        const target = nodes.find(n => n.id === d.target);
-        return target ? target.x : 0;
-      })
-      .attr('y2', d => {
-        const target = nodes.find(n => n.id === d.target);
-        return target ? target.y : 0;
-      });
+      .attr('class', d => \`link link-\${d.type}\`);
 
     // Draw nodes
     const nodeGroups = g.selectAll('.node')
       .data(nodes)
       .join('g')
-      .attr('class', 'node')
-      .attr('transform', d => \`translate(\${d.x},\${d.y})\`);
+      .attr('class', 'node');
 
     nodeGroups.append('circle')
       .attr('r', d => getNodeSize(d))
       .attr('fill', d => getNodeColor(d.id, d))
       .on('click', (event, d) => {
         alert(\`Page: \${d.id}\\nLayer: \${d.layer}\\nStatus: \${d.status}\\nIncoming: \${d.incomingCount}\\nOutgoing: \${d.outgoingCount}\`);
-      });
+      })
+      .call(d3.drag()
+        .on('start', dragstarted)
+        .on('drag', dragged)
+        .on('end', dragended));
 
     nodeGroups.append('text')
       .attr('dy', 20)
@@ -726,9 +728,64 @@ function generateHTML(report, layers, pageMetadata, stats) {
       .text(d => {
         const parts = d.id.split('/');
         const lastPart = parts[parts.length - 1] || '/';
-        // Allow longer labels with more horizontal space
-        return lastPart.length > 25 ? lastPart.substring(0, 22) + '...' : lastPart;
+        return lastPart.length > 20 ? lastPart.substring(0, 17) + '...' : lastPart;
       });
+
+    // Force simulation with D3's built-in radial force
+    const simulation = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links)
+        .id(d => d.id)
+        .distance(d => {
+          const source = nodes.find(n => n.id === d.source);
+          const target = nodes.find(n => n.id === d.target);
+          // Shorter links within same layer, longer across layers
+          return Math.abs((source?.layer || 0) - (target?.layer || 0)) * 50 + 40;
+        })
+        .strength(0.2))
+      .force('charge', d3.forceManyBody().strength(-120))
+      .force('collision', d3.forceCollide().radius(d => getNodeSize(d) + 15).strength(1))
+      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(0.8))
+      .on('tick', ticked);
+
+    function ticked() {
+      linkElements
+        .attr('x1', d => {
+          const source = nodes.find(n => n.id === d.source.id || n.id === d.source);
+          return source ? source.x : 0;
+        })
+        .attr('y1', d => {
+          const source = nodes.find(n => n.id === d.source.id || n.id === d.source);
+          return source ? source.y : 0;
+        })
+        .attr('x2', d => {
+          const target = nodes.find(n => n.id === d.target.id || n.id === d.target);
+          return target ? target.x : 0;
+        })
+        .attr('y2', d => {
+          const target = nodes.find(n => n.id === d.target.id || n.id === d.target);
+          return target ? target.y : 0;
+        });
+
+      nodeGroups
+        .attr('transform', d => \`translate(\${d.x},\${d.y})\`);
+    }
+
+    function dragstarted(event, d) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+      d.fx = event.x;
+      d.fy = event.y;
+    }
+
+    function dragended(event, d) {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    }
 
     console.log('Visualization rendered:', {
       nodes: nodes.length,

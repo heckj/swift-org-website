@@ -15,11 +15,11 @@
 
 ## Technical Approach
 
-- **Layout**: Layered/level-based (Y-axis = depth from home)
-- **Library**: D3.js for SVG rendering
+- **Layout**: Force-directed with radial layers (distance from center = depth)
+- **Library**: D3.js for SVG rendering and force simulation
 - **Format**: Node.js script generates standalone HTML file
 - **Navigation Metric**: Number of clicks from home page
-- **Header/Footer**: Special layer below home (Layer 1)
+- **Header/Footer**: Separate concentric rings (Layer 1 and Layer 2)
 
 ## Progress Tracking
 
@@ -117,15 +117,27 @@
 ### Layout
 
 ```
-Layer 0:                [Home /]
-                           |
-Layer 1:    [Header Links] | [Footer Links]
-                |          |          |
-Layer 2:     [Page A]  [Page B]  [Page C]
-                |          |
-Layer 3:     [Page D]  [Page E]
+                    Isolated Ring (outermost)
+                  /                           \
+              Layer 8                     Layer 7
+           /                                       \
+       Layer 6                                 Layer 5
+      /                                               \
+   Layer 4                                         Layer 3
+    /                                                     \
+  Layer 2 (Footer)              [Home]            Layer 2 (Footer)
+    \                              |                     /
+     \                         Layer 1                 /
+      \                       (Header)               /
+       \                          |                 /
+        \_________________________|________________/
 
-Isolated:   [Orphan 1] [Orphan 2]
+Radial/Concentric Layout:
+- Home page at center
+- Each layer forms a ring at increasing radius
+- Force-directed simulation keeps nodes at target radius
+- Link forces pull connected nodes together
+- Collision detection prevents overlap
 ```
 
 ### Color Scheme
@@ -134,14 +146,16 @@ Isolated:   [Orphan 1] [Orphan 2]
 - **Red (#ef4444)**: Error or broken links
 - **Orange (#f97316)**: Isolated page (no incoming links)
 - **Yellow (#eab308)**: Warning (broken images)
-- **Blue (#3b82f6)**: Header/footer (globally available)
+- **Blue (#3b82f6)**: Header links (globally available)
+- **Teal (#14b8a6)**: Footer links (globally available)
 - **Gray (#9ca3af)**: Collapsed/hidden
 
 ### Node Encoding
 
 - **Size**: Proportional to incoming link count (popularity)
 - **Border**: Thick border for current selection
-- **Shape**: Rounded rectangles for all pages
+- **Shape**: Circles for all pages
+- **Interactive**: Drag to reposition, click for details
 
 ## Files Created
 
@@ -300,5 +314,68 @@ open site-visualize-output.html     # View in browser
 
 ---
 
+### Session 2 (2025-11-10) - COMPLETED
+
+**Layout Improvements: Radial Force-Directed Graph**
+
+User requested change from linear layered layout to force-directed radial layout:
+
+1. **Layout Transformation:**
+   - ✅ Converted from fixed horizontal layers to radial/concentric layout
+   - ✅ Home page positioned at center point
+   - ✅ Separated header (Layer 1) and footer (Layer 2) into distinct rings
+   - ✅ Content layers arranged as concentric circles by click depth
+   - ✅ Isolated pages placed in outermost ring
+
+2. **Force Simulation Implementation:**
+   - ✅ Used D3's built-in `d3.forceRadial()` to maintain layer distances
+   - ✅ Applied link forces to show connections between pages
+   - ✅ Added collision detection (`d3.forceCollide()`) to prevent overlap
+   - ✅ Included charge force (`d3.forceManyBody()`) for node separation
+   - ✅ Made nodes draggable for manual repositioning
+
+3. **Visual Enhancements:**
+   - ✅ Changed footer color from purple (#8b5cf6) to teal (#14b8a6) for better contrast
+   - ✅ Added dashed concentric circles as layer guides
+   - ✅ Updated legend to show separate "Header Links" and "Footer Links"
+   - ✅ Layer labels positioned at circle edges
+
+4. **Technical Details:**
+   - Canvas size: 2400x2400px with viewBox for responsive scaling
+   - Radius step: ~180px between layers (calculated dynamically)
+   - Force parameters:
+     - Radial strength: 0.8 (strong pull to target radius)
+     - Link strength: 0.2 (flexible connections)
+     - Link distance: 40-90px (varies by layer difference)
+     - Charge: -120 (stronger repulsion for better spacing)
+     - Collision radius: node size + 15px padding (full strength)
+
+**Benefits of Force-Directed Layout:**
+- More compact visualization (2400x2400 vs previous scrolling layout)
+- Natural clustering of related pages
+- Interactive drag-and-drop for exploration
+- Radial distance directly shows click depth from home
+- Easier to see connectivity patterns and hub pages
+
+**Current State:**
+- 440 pages visualized
+- 9 layers (8 max click depth)
+- Force simulation running with smooth animations
+- Drag interaction working
+- Layer guides visible
+
+**Files Modified:**
+- `scripts/site-visualize.js` - Replaced fixed positioning with force simulation
+- `scripts/site-visualize.md` - Updated documentation
+
+**Next Steps:**
+Phase 3: Interactivity (Steps 11-16 - not started)
+- Side panel for page details
+- Filter controls
+- Search functionality
+- Layer collapse/expand
+
+---
+
 _Last Updated: 2025-11-10_
-_Session 1 Complete - Ready for Phase 3_
+_Session 2 Complete - Force-directed radial layout implemented_
