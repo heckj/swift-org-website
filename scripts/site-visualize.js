@@ -751,8 +751,16 @@ function generateHTML(report, layers, pageMetadata, stats) {
       .attr('dy', 20)
       .attr('text-anchor', 'middle')
       .text(d => {
-        const parts = d.id.split('/');
-        const lastPart = parts[parts.length - 1] || '/';
+        // Handle homepage specially
+        if (d.id === '/') return 'Home';
+
+        // Split path and filter out empty strings
+        const parts = d.id.split('/').filter(p => p.length > 0);
+
+        // Get the last meaningful part
+        const lastPart = parts.length > 0 ? parts[parts.length - 1] : 'Home';
+
+        // Truncate if too long
         return lastPart.length > 20 ? lastPart.substring(0, 17) + '...' : lastPart;
       });
 
@@ -770,8 +778,12 @@ function generateHTML(report, layers, pageMetadata, stats) {
         })
         .strength(0.5))
       .force('charge', d3.forceManyBody().strength(-80))
-      .force('collision', d3.forceCollide().radius(d => getNodeSize(d) + 15).strength(1))
-      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(1.5))
+      // Collision radius set to 20 for good spacing with text labels
+      .force('collision', d3.forceCollide().radius(d => getNodeSize(d) + 20).strength(0.7))
+      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(1.2))
+      // Speed up settling by increasing alpha decay
+      .alphaDecay(0.05) // default is 0.0228, higher = faster settling
+      .velocityDecay(0.6) // default is 0.4, higher = more friction, faster settling
       .on('tick', ticked);
 
     function ticked() {

@@ -43,7 +43,7 @@ const fs = require('fs').promises
 const CONFIG = {
   baseUrl: process.env.SITE_URL || 'http://localhost:4000', // Target site URL
   maxPages: parseInt(process.env.MAX_PAGES, 10) || 1000, // Limit crawl to prevent runaway
-  timeout: 30000, // Page load timeout in milliseconds
+  timeout: 10000, // Page load timeout in milliseconds
   checkExternalLinks: process.env.CHECK_EXTERNAL === 'true', // Currently unused, reserved for future
   concurrency: 3, // Currently unused, reserved for concurrent crawling
   outputFile: 'site-check-report.json', // Where to save the detailed JSON report
@@ -61,8 +61,9 @@ const state = {
   pages: new Map(), // uri -> { outgoingLinks: {header: [], footer: [], content: []}, images: [], incomingLinks: [], externalLinks: [] }
   brokenLinks: [], // Links that returned 404 (URIs)
   brokenImages: new Map(), // Map of broken image URI -> { pages: [], alt: string }
-  redirects: [], // Pages that redirect to another URI
+  redirects: new Map(), // Map of source URI -> target URI for all redirects discovered
   errors: [], // Pages that threw errors during crawl (URIs)
+  canonicalUrls: new Map(), // Map of any URI variant -> canonical URI (resolved after redirects)
 }
 
 // Color codes for console output - ANSI escape sequences
@@ -108,17 +109,14 @@ function isInternalUrl(url, baseUrl) {
   }
 }
 
-// Normalize URLs for consistent comparison - removes hash and trailing slash
+// Normalize URLs for consistent comparison - removes hash only
+// Keep trailing slashes and extensions as-is to preserve server behavior
 function normalizeUrl(url, baseUrl) {
   try {
     const urlObj = new URL(url, baseUrl)
-    // Remove hash and trailing slash for consistency
+    // Only remove hash for consistency - keep everything else as-is
     urlObj.hash = ''
-    let normalized = urlObj.href
-    if (normalized.endsWith('/') && normalized !== baseUrl + '/') {
-      normalized = normalized.slice(0, -1)
-    }
-    return normalized
+    return urlObj.href
   } catch {
     return null
   }
@@ -144,7 +142,8 @@ function stripBaseUrl(url, baseUrl) {
 }
 
 /**
- * Convert a full URL to a URI (path + search + hash)
+ * Convert a full URL to a URI (path + search)
+ * Store URLs as-is without transformation - canonicalization happens later
  * @param {string} url - Full URL to convert
  * @param {string} baseUrl - Base URL to strip
  * @returns {string|null} URI representation, always '/' for homepage, always starts with '/'
@@ -162,20 +161,8 @@ function toUri(url, baseUrl) {
     uri = '/' + uri
   }
 
-  // Normalize HTML pages to always include .html extension
-  // Jekyll serves pages both with and without .html, but we want consistent URIs
-  // Only apply to paths that look like HTML pages (no extension or .html extension)
-  // Skip if it already has .html, or has another extension, or ends with /
-  const hasExtension = /\.[^/.]+$/.test(uri.split('?')[0].split('#')[0])
-  const endsWithSlash = uri.split('?')[0].split('#')[0].endsWith('/')
-  const isHomepage = uri === '/' || uri.split('?')[0].split('#')[0] === '/'
-
-  if (!isHomepage && !endsWithSlash && !hasExtension) {
-    // Add .html extension to paths without extension (likely HTML pages)
-    const [path, queryAndHash] = uri.split(/([?#].*)/)
-    uri = path + '.html' + (queryAndHash || '')
-  }
-
+  // Return URI as-is without any transformation
+  // This preserves the original URL structure (trailing slashes, extensions, etc.)
   return uri
 }
 
@@ -226,23 +213,23 @@ function getReferrers(uri) {
 }
 
 /**
- * Check if a redirect should be tracked (ignores trailing slash redirects)
+ * Check if a redirect occurred and track it
  * @param {string} requestedUri - URI that was requested
  * @param {string} responseUrl - Full URL from browser response
  * @param {string} baseUrl - Base URL for conversion
- * @returns {string|null} Final URI if redirect should be tracked, null otherwise
+ * @returns {string|null} Final URI if redirect occurred, null otherwise
  */
-function shouldTrackRedirect(requestedUri, responseUrl, baseUrl) {
+function trackRedirect(requestedUri, responseUrl, baseUrl) {
   const finalUri = toUri(responseUrl, baseUrl)
 
   // No redirect if same URI
   if (finalUri === requestedUri) return null
 
-  // Ignore trailing slash redirects
-  const isTrailingSlashRedirect =
-    finalUri === requestedUri + '/' || finalUri + '/' === requestedUri
+  // Track this redirect in our map
+  state.redirects.set(requestedUri, finalUri)
+  log(`  Redirect: ${requestedUri} -> ${finalUri}`, 'yellow')
 
-  return isTrailingSlashRedirect ? null : finalUri
+  return finalUri
 }
 
 // Extract all links and images from the current page using browser context
@@ -307,6 +294,7 @@ async function crawlPage(browser, uri) {
     return
   }
 
+  // Mark as visited immediately to prevent duplicate crawls
   state.visited.add(uri)
   log(`[${state.visited.size}/${CONFIG.maxPages}] Crawling: ${uri}`, 'cyan')
 
@@ -346,27 +334,34 @@ async function crawlPage(browser, uri) {
       return
     }
 
-    // Detect redirects using helper
-    const redirectUri = shouldTrackRedirect(uri, response.url(), CONFIG.baseUrl)
-    if (redirectUri) {
-      state.redirects.push({
-        from: uri,
-        to: redirectUri,
-        status: response.status(),
-      })
-      log(`  Redirect: ${uri} -> ${redirectUri}`, 'yellow')
+    // Detect and track redirects
+    const finalUri = trackRedirect(uri, response.url(), CONFIG.baseUrl)
+    const actualUri = finalUri || uri // Use redirected URI if redirect occurred
+
+    // If this page redirected, mark the target as visited to avoid crawling it again
+    if (finalUri) {
+      state.visited.add(finalUri)
+      // Remove from toVisit queue if it's there
+      state.toVisit.delete(finalUri)
+    }
+
+    // Store canonical URL mapping
+    state.canonicalUrls.set(uri, actualUri)
+    if (finalUri) {
+      // Also map the final URI to itself
+      state.canonicalUrls.set(finalUri, finalUri)
     }
 
     // Extract links and images
     const { headerLinks, footerLinks, contentLinks, images } =
       await extractLinksAndImages(page)
 
-    // Initialize page data using helper
-    if (!state.pages.has(uri)) {
-      state.pages.set(uri, createPageData(response.status()))
+    // Initialize page data for the actual URI (after redirect resolution)
+    if (!state.pages.has(actualUri)) {
+      state.pages.set(actualUri, createPageData(response.status()))
     }
 
-    const pageData = state.pages.get(uri)
+    const pageData = state.pages.get(actualUri)
 
     // Helper function to process links from a specific category
     const processLinks = (links, category) => {
@@ -380,14 +375,14 @@ async function crawlPage(browser, uri) {
           const linkUri = toUri(linkFullUrl, CONFIG.baseUrl)
           if (!linkUri) continue
 
-          // Internal link - add to categorized outgoing links (as URI)
+          // Internal link - add to categorized outgoing links (as URI, not canonical yet)
           pageData.outgoingLinks[category].push(linkUri)
 
-          // Track incoming links for orphan detection
+          // Track incoming links for orphan detection (using actualUri as source)
           if (!state.pages.has(linkUri)) {
             state.pages.set(linkUri, createPageData())
           }
-          state.pages.get(linkUri).incomingLinks.push(uri)
+          state.pages.get(linkUri).incomingLinks.push(actualUri)
 
           // Add to crawl queue if not yet visited
           if (!state.visited.has(linkUri)) {
@@ -444,6 +439,7 @@ async function crawlPage(browser, uri) {
 
 // Validate links that were discovered but not crawled (check for 404s)
 // Only validates internal links - external links are not checked
+// This also discovers redirects for unvisited links
 async function validateLinks(browser) {
   log('\nValidating internal links...', 'blue')
 
@@ -472,8 +468,36 @@ async function validateLinks(browser) {
 
         // Convert URI to full URL for request
         const fullUrl = uriToUrl(linkUri, CONFIG.baseUrl)
-        const response = await page.request.head(fullUrl, { timeout: 10000 })
 
+        // Use page.request.get() instead of page.goto() for faster validation
+        // This follows redirects but doesn't render/parse the page
+        const response = await page.request.get(fullUrl, {
+          timeout: CONFIG.timeout,
+          maxRedirects: 3, // Follow up to 3 redirects
+        })
+
+        if (!response) {
+          const referrers = getReferrers(linkUri)
+          state.errors.push({
+            url: linkUri,
+            error: 'No response received',
+            referrers,
+          })
+          continue
+        }
+
+        // Track redirect if one occurred by checking final URL
+        const responseUrl = response.url()
+        const finalUri = trackRedirect(linkUri, responseUrl, CONFIG.baseUrl)
+        const actualUri = finalUri || linkUri
+
+        // Store canonical URL mapping
+        state.canonicalUrls.set(linkUri, actualUri)
+        if (finalUri) {
+          state.canonicalUrls.set(finalUri, finalUri)
+        }
+
+        // Mark as broken if 404
         if (response.status() === 404) {
           const referrers = getReferrers(linkUri)
 
@@ -482,6 +506,11 @@ async function validateLinks(browser) {
             referrers,
             status: 404,
           })
+        } else {
+          // Successful validation - ensure page data exists for actual URI
+          if (!state.pages.has(actualUri)) {
+            state.pages.set(actualUri, createPageData(response.status()))
+          }
         }
 
         // Add delay between validation requests
@@ -529,6 +558,112 @@ function analyzeIsolatedPages() {
   }
 
   return isolated
+}
+
+/**
+ * Canonicalize all URIs in the state to their final destinations
+ * This resolves redirect chains and updates all references
+ */
+function canonicalizeUrls() {
+  log('\nCanonicalizing URLs...', 'blue')
+
+  // Helper to resolve a URI through the redirect chain
+  const resolveUri = (uri) => {
+    const visited = new Set()
+    let current = uri
+
+    // Follow redirect chain until we reach the end or detect a loop
+    while (state.redirects.has(current)) {
+      if (visited.has(current)) {
+        log(`  Warning: Redirect loop detected for ${uri}`, 'yellow')
+        break
+      }
+      visited.add(current)
+      current = state.redirects.get(current)
+    }
+
+    return current
+  }
+
+  // Build complete canonical mapping by resolving all redirect chains
+  for (const uri of state.canonicalUrls.keys()) {
+    const canonical = resolveUri(uri)
+    state.canonicalUrls.set(uri, canonical)
+  }
+
+  // Also ensure all pages are in the canonical map
+  for (const uri of state.pages.keys()) {
+    if (!state.canonicalUrls.has(uri)) {
+      state.canonicalUrls.set(uri, resolveUri(uri))
+    }
+  }
+
+  // Canonicalize all links in page data
+  const newPages = new Map()
+
+  for (const [uri, data] of state.pages) {
+    const canonicalUri = state.canonicalUrls.get(uri) || uri
+
+    // Canonicalize outgoing links
+    const canonicalOutgoing = {
+      header: data.outgoingLinks.header.map(
+        (link) => state.canonicalUrls.get(link) || link
+      ),
+      footer: data.outgoingLinks.footer.map(
+        (link) => state.canonicalUrls.get(link) || link
+      ),
+      content: data.outgoingLinks.content.map(
+        (link) => state.canonicalUrls.get(link) || link
+      ),
+    }
+
+    // Canonicalize incoming links
+    const canonicalIncoming = data.incomingLinks.map(
+      (link) => state.canonicalUrls.get(link) || link
+    )
+
+    // Get or create target page data
+    if (!newPages.has(canonicalUri)) {
+      newPages.set(canonicalUri, {
+        outgoingLinks: { header: [], footer: [], content: [] },
+        images: [],
+        incomingLinks: [],
+        externalLinks: [],
+        status: data.status,
+      })
+    }
+
+    const targetData = newPages.get(canonicalUri)
+
+    // Always merge the data (whether redirect or not)
+    // This handles both the case where a page redirects AND where the redirect target exists
+    targetData.outgoingLinks.header.push(...canonicalOutgoing.header)
+    targetData.outgoingLinks.footer.push(...canonicalOutgoing.footer)
+    targetData.outgoingLinks.content.push(...canonicalOutgoing.content)
+    targetData.incomingLinks.push(...canonicalIncoming)
+    targetData.images.push(...data.images)
+    targetData.externalLinks.push(...data.externalLinks)
+
+    // Preserve status from the canonical URI (if this IS the canonical)
+    if (canonicalUri === uri) {
+      targetData.status = data.status
+    }
+  }
+
+  // Deduplicate all arrays in the new pages map
+  for (const [uri, data] of newPages) {
+    data.outgoingLinks.header = [...new Set(data.outgoingLinks.header)]
+    data.outgoingLinks.footer = [...new Set(data.outgoingLinks.footer)]
+    data.outgoingLinks.content = [...new Set(data.outgoingLinks.content)]
+    data.incomingLinks = [...new Set(data.incomingLinks)]
+    data.externalLinks = [...new Set(data.externalLinks)]
+    data.images = [...new Set(data.images)]
+  }
+
+  // Replace state.pages with canonicalized version
+  state.pages = newPages
+
+  log(`  Canonicalized ${state.pages.size} pages`, 'green')
 }
 
 // Load and parse sitemap.xml to get initial list of URLs to crawl
@@ -603,14 +738,18 @@ function generateReport() {
   // Create a Set of isolated page URIs for quick lookup
   const isolatedSet = new Set(isolated.map((p) => p.url))
 
+  // Build redirect list from the redirect map
+  const redirectList = Array.from(state.redirects.entries()).map(
+    ([from, to]) => ({
+      from,
+      to,
+      status: 301, // Most redirects are 301 or 302, but we don't track the exact code anymore
+    })
+  )
+
   // Build page-centric report structure
   const pages = {}
   for (const [uri, data] of state.pages.entries()) {
-    // URI is already in the format we want - no stripping needed
-
-    // Find any redirect that originated from this page
-    const redirect = state.redirects.find((r) => r.from === uri)
-
     // Find any error that occurred on this page
     const error = state.errors.find((e) => e.url === uri)
 
@@ -629,7 +768,7 @@ function generateReport() {
 
     // Find broken images on this page
     const brokenImagesOnPage = Array.from(state.brokenImages.entries())
-      .filter(([imageUri, imageData]) => imageData.pages.includes(uri))
+      .filter(([, imageData]) => imageData.pages.includes(uri))
       .map(([imageUri, imageData]) => ({
         url: imageUri, // Already a URI
         alt: imageData.alt,
@@ -641,23 +780,23 @@ function generateReport() {
     // Deduplicate external links (full URLs)
     const uniqueExternalLinks = [...new Set(data.externalLinks)]
 
+    // Find all URIs that redirect to this page
+    const redirectsToHere = Array.from(state.redirects.entries())
+      .filter(([, target]) => target === uri)
+      .map(([source]) => source)
+
     pages[uri] = {
       incomingLinks: uniqueIncomingLinks,
       isIsolated: isolatedSet.has(uri),
       outgoingLinks: {
-        header: data.outgoingLinks.header, // Already URIs
-        footer: data.outgoingLinks.footer, // Already URIs
-        content: data.outgoingLinks.content, // Already URIs
+        header: data.outgoingLinks.header, // Already canonical URIs
+        footer: data.outgoingLinks.footer, // Already canonical URIs
+        content: data.outgoingLinks.content, // Already canonical URIs
       },
       externalLinks: uniqueExternalLinks, // Full URLs
       imagesCount: data.images.length,
       issues: {
-        redirect: redirect
-          ? {
-              to: redirect.to, // Already a URI
-              status: redirect.status,
-            }
-          : null,
+        redirect: redirectsToHere.length > 0 ? { from: redirectsToHere } : null,
         error: error ? error.error : null,
         brokenLinks: brokenLinksFromThisPage,
         brokenImages: brokenImagesOnPage,
@@ -686,7 +825,7 @@ function generateReport() {
       totalLinks: totalLinks,
       brokenLinks: state.brokenLinks.length,
       brokenImages: state.brokenImages.size,
-      redirects: state.redirects.length,
+      redirects: redirectList.length,
       isolatedPages: isolated.length,
       errors: state.errors.length,
       externalDomains: allExternalDomains.size,
@@ -873,6 +1012,9 @@ async function main() {
 
     // Validate all discovered links that weren't crawled
     await validateLinks(browser)
+
+    // Canonicalize all URIs to their final destinations
+    canonicalizeUrls()
 
     // Generate report
     const report = generateReport()
