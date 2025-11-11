@@ -427,7 +427,7 @@ function generateHTML(report, layers, pageMetadata, stats) {
     #legend {
       position: absolute;
       top: 1rem;
-      right: 1rem;
+      left: 1rem;
       background: white;
       padding: 1rem;
       border-radius: 0.5rem;
@@ -693,37 +693,6 @@ function generateHTML(report, layers, pageMetadata, stats) {
         .attr('stroke-dasharray', '4,4');
     }
 
-    // Draw layer labels
-    layerNumbers.forEach((layerNum) => {
-      const radius = layerNum * radiusStep;
-      const layerName = layerNum === 0 ? 'Home' :
-                        layerNum === 1 ? 'Navigation' :
-                        \`Layer \${layerNum} (\${layerNum - 1} clicks)\`;
-
-      if (radius > 0) {
-        g.append('text')
-          .attr('class', 'layer-label')
-          .attr('x', centerX + radius + 10)
-          .attr('y', centerY)
-          .attr('text-anchor', 'start')
-          .attr('dominant-baseline', 'middle')
-          .text(layerName);
-      }
-    });
-
-    // Isolated layer label
-    if (isolatedCount > 0) {
-      const isolatedRadius = (maxLayer + 2) * radiusStep;
-      g.append('text')
-        .attr('class', 'layer-label')
-        .attr('x', centerX + isolatedRadius + 10)
-        .attr('y', centerY)
-        .attr('text-anchor', 'start')
-        .attr('dominant-baseline', 'middle')
-        .attr('fill', '#f97316')
-        .text(\`Isolated (\${isolatedCount})\`);
-    }
-
     // Draw links
     const linkElements = g.selectAll('.link')
       .data(links)
@@ -740,7 +709,12 @@ function generateHTML(report, layers, pageMetadata, stats) {
       .attr('r', d => getNodeSize(d))
       .attr('fill', d => getNodeColor(d.id, d))
       .on('click', (event, d) => {
-        alert(\`Page: \${d.id}\\nLayer: \${d.layer}\\nStatus: \${d.status}\\nIncoming: \${d.incomingCount}\\nOutgoing: \${d.outgoingCount}\`);
+        // Calculate depth (clicks from home)
+        const depth = d.layer === 0 ? 0 :
+                      d.layer === 1 ? 'Navigation' :
+                      d.layer === 'isolated' ? 'Isolated' :
+                      \`\${d.layer - 1} clicks\`;
+        alert(\`Page: \${d.id}\\nLayer: \${d.layer}\\nDepth: \${depth}\\nStatus: \${d.status}\\nIncoming: \${d.incomingCount}\\nOutgoing: \${d.outgoingCount}\`);
       })
       .call(d3.drag()
         .on('start', dragstarted)
@@ -760,8 +734,8 @@ function generateHTML(report, layers, pageMetadata, stats) {
         // Get the last meaningful part
         const lastPart = parts.length > 0 ? parts[parts.length - 1] : 'Home';
 
-        // Truncate if too long
-        return lastPart.length > 20 ? lastPart.substring(0, 17) + '...' : lastPart;
+        // Truncate if too long (increased from 20 to 25 chars)
+        return lastPart.length > 25 ? lastPart.substring(0, 22) + '...' : lastPart;
       });
 
     // Force simulation with D3's built-in radial force
@@ -776,11 +750,11 @@ function generateHTML(report, layers, pageMetadata, stats) {
           // Much shorter base distance to keep things tighter
           return layerDiff * 30 + 20;
         })
-        .strength(0.5))
-      .force('charge', d3.forceManyBody().strength(-80))
+        .strength(0.4))  // Reduced from 0.5 to 0.4 for looser attraction
+      .force('charge', d3.forceManyBody().strength(-100))  // Increased from -80 to -100 for more repulsion
       // Collision radius set to 20 for good spacing with text labels
       .force('collision', d3.forceCollide().radius(d => getNodeSize(d) + 20).strength(0.7))
-      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(1.2))
+      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(1.0))  // Reduced from 1.2 to 1.0
       // Speed up settling by increasing alpha decay
       .alphaDecay(0.05) // default is 0.0228, higher = faster settling
       .velocityDecay(0.6) // default is 0.4, higher = more friction, faster settling
