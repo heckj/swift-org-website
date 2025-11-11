@@ -52,6 +52,7 @@ const CONFIG = {
 
 // State tracking - shared across all crawl operations
 // All URLs are stored as URIs (e.g., '/blog/post') for consistency
+// URIs always start with '/' and represent paths from the site root
 // Homepage is always represented as '/'
 // External links are stored as full URLs on each page
 const state = {
@@ -146,14 +147,22 @@ function stripBaseUrl(url, baseUrl) {
  * Convert a full URL to a URI (path + search + hash)
  * @param {string} url - Full URL to convert
  * @param {string} baseUrl - Base URL to strip
- * @returns {string|null} URI representation, always '/' for homepage
+ * @returns {string|null} URI representation, always '/' for homepage, always starts with '/'
  */
 function toUri(url, baseUrl) {
   const normalized = normalizeUrl(url, baseUrl)
   if (!normalized) return null
 
   const uri = stripBaseUrl(normalized, baseUrl)
-  return uri === '' ? '/' : uri
+
+  // Ensure URI always starts with '/' for consistency
+  if (uri === '') return '/'
+  if (!uri.startsWith('/')) {
+    // This shouldn't happen, but handle it defensively
+    return '/' + uri
+  }
+
+  return uri
 }
 
 /**
@@ -241,7 +250,7 @@ async function extractLinksAndImages(page) {
           !href.startsWith('mailto:')
         ) {
           links.push({
-            href: href,
+            href: a.href, // Use fully resolved URL from browser, not raw attribute
             text: a.textContent.trim().substring(0, 100), // Truncate long link text
           })
         }
@@ -268,7 +277,7 @@ async function extractLinksAndImages(page) {
     // Extract all images with their src and alt text
     document.querySelectorAll('img[src]').forEach((img) => {
       images.push({
-        src: img.getAttribute('src'),
+        src: img.src, // Use fully resolved URL from browser, not raw attribute
         alt: img.getAttribute('alt') || '(no alt text)',
       })
     })
@@ -348,7 +357,8 @@ async function crawlPage(browser, uri) {
     // Helper function to process links from a specific category
     const processLinks = (links, category) => {
       for (const link of links) {
-        const linkFullUrl = normalizeUrl(link.href, fullUrl)
+        // link.href is now a fully resolved URL from the browser
+        const linkFullUrl = normalizeUrl(link.href, CONFIG.baseUrl)
         if (!linkFullUrl) continue
 
         // Check if link is internal or external
@@ -383,7 +393,8 @@ async function crawlPage(browser, uri) {
 
     // Process images and check against failed requests
     for (const image of images) {
-      const imageFullUrl = normalizeUrl(image.src, fullUrl)
+      // image.src is now a fully resolved URL from the browser
+      const imageFullUrl = normalizeUrl(image.src, CONFIG.baseUrl)
       if (!imageFullUrl) continue
 
       const imageUri = toUri(imageFullUrl, CONFIG.baseUrl)
