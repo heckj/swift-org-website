@@ -51,15 +51,17 @@ const CONFIG = {
 }
 
 // State tracking - shared across all crawl operations
+// All URLs are stored as URIs (e.g., '/blog/post') for consistency
+// Homepage is always represented as '/'
+// External links are stored as full URLs on each page
 const state = {
-  visited: new Set(), // URLs already crawled
-  toVisit: new Set(), // Set of URLs to crawl next
-  pages: new Map(), // url -> { outgoingLinks: {header: [], footer: [], content: []}, images: [], incomingLinks: [] }
-  brokenLinks: [], // Links that returned 404
-  brokenImages: new Map(), // Map of broken image URL -> { pages: [], alt: string }
-  redirects: [], // Pages that redirect to another URL
-  errors: [], // Pages that threw errors during crawl
-  externalLinks: new Map(), // Map of domain -> { pages: Set() }
+  visited: new Set(), // URIs already crawled
+  toVisit: new Set(), // URIs to crawl next
+  pages: new Map(), // uri -> { outgoingLinks: {header: [], footer: [], content: []}, images: [], incomingLinks: [], externalLinks: [] }
+  brokenLinks: [], // Links that returned 404 (URIs)
+  brokenImages: new Map(), // Map of broken image URI -> { pages: [], alt: string }
+  redirects: [], // Pages that redirect to another URI
+  errors: [], // Pages that threw errors during crawl (URIs)
 }
 
 // Color codes for console output - ANSI escape sequences
@@ -82,19 +84,19 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Normalize hostname to treat localhost and 0.0.0.0 as equivalent
+function normalizeHost(hostname) {
+  if (hostname === '0.0.0.0' || hostname === 'localhost') {
+    return 'localhost'
+  }
+  return hostname
+}
+
 // Check if URL belongs to the same site being crawled (not external)
 function isInternalUrl(url, baseUrl) {
   try {
     const urlObj = new URL(url, baseUrl)
     const baseObj = new URL(baseUrl)
-
-    // Consider localhost and 0.0.0.0 as the same host
-    const normalizeHost = (hostname) => {
-      if (hostname === '0.0.0.0' || hostname === 'localhost') {
-        return 'localhost'
-      }
-      return hostname
-    }
 
     return (
       normalizeHost(urlObj.hostname) === normalizeHost(baseObj.hostname) &&
@@ -127,14 +129,97 @@ function stripBaseUrl(url, baseUrl) {
     const urlObj = new URL(url)
     const baseObj = new URL(baseUrl)
 
-    // Only strip if it's the same host
-    if (urlObj.hostname === baseObj.hostname) {
+    // Only strip if it's the same host (with normalization) and same port
+    if (
+      normalizeHost(urlObj.hostname) === normalizeHost(baseObj.hostname) &&
+      urlObj.port === baseObj.port
+    ) {
       return urlObj.pathname + urlObj.search + urlObj.hash
     }
     return url
   } catch {
     return url
   }
+}
+
+/**
+ * Convert a full URL to a URI (path + search + hash)
+ * @param {string} url - Full URL to convert
+ * @param {string} baseUrl - Base URL to strip
+ * @returns {string|null} URI representation, always '/' for homepage
+ */
+function toUri(url, baseUrl) {
+  const normalized = normalizeUrl(url, baseUrl)
+  if (!normalized) return null
+
+  const uri = stripBaseUrl(normalized, baseUrl)
+  return uri === '' ? '/' : uri
+}
+
+/**
+ * Convert a URI back to a full URL
+ * @param {string} uri - URI to convert (e.g., '/blog/post')
+ * @param {string} baseUrl - Base URL to prepend
+ * @returns {string} Full URL
+ */
+function uriToUrl(uri, baseUrl) {
+  if (uri === '/') {
+    return baseUrl
+  }
+  return new URL(uri, baseUrl).href
+}
+
+/**
+ * Create initial page data structure
+ * @param {number|null} status - HTTP status code (optional)
+ * @returns {object} Page data object
+ */
+function createPageData(status = null) {
+  const data = {
+    outgoingLinks: {
+      header: [],
+      footer: [],
+      content: [],
+    },
+    images: [],
+    incomingLinks: [],
+    externalLinks: [], // Full URLs to external sites
+  }
+
+  if (status !== null) {
+    data.status = status
+  }
+
+  return data
+}
+
+/**
+ * Get list of pages that link to the given URI
+ * @param {string} uri - URI to get referrers for
+ * @returns {Array<string>} Array of URIs that link to this page
+ */
+function getReferrers(uri) {
+  return state.pages.has(uri) ? state.pages.get(uri).incomingLinks : []
+}
+
+/**
+ * Check if a redirect should be tracked (ignores trailing slash redirects)
+ * @param {string} requestedUri - URI that was requested
+ * @param {string} responseUrl - Full URL from browser response
+ * @param {string} baseUrl - Base URL for conversion
+ * @returns {string|null} Final URI if redirect should be tracked, null otherwise
+ */
+function shouldTrackRedirect(requestedUri, responseUrl, baseUrl) {
+  const finalUri = toUri(responseUrl, baseUrl)
+
+  // No redirect if same URI
+  if (finalUri === requestedUri) return null
+
+  // Ignore trailing slash redirects
+  const isTrailingSlashRedirect =
+    finalUri === requestedUri + '/' || finalUri + '/' === requestedUri
+
+  return isTrailingSlashRedirect ? null : finalUri
 }
 
 // Extract all links and images from the current page using browser context
@@ -193,41 +278,44 @@ async function extractLinksAndImages(page) {
 }
 
 // Main crawl function - visits a page, extracts links/images, checks validity
-async function crawlPage(browser, url) {
+async function crawlPage(browser, uri) {
   // Skip if already visited or reached max page limit from CONFIG
-  if (state.visited.has(url) || state.visited.size >= CONFIG.maxPages) {
+  if (state.visited.has(uri) || state.visited.size >= CONFIG.maxPages) {
     return
   }
 
-  state.visited.add(url)
-  log(`[${state.visited.size}/${CONFIG.maxPages}] Crawling: ${url}`, 'cyan')
+  state.visited.add(uri)
+  log(`[${state.visited.size}/${CONFIG.maxPages}] Crawling: ${uri}`, 'cyan')
+
+  // Convert URI to full URL for browser
+  const fullUrl = uriToUrl(uri, CONFIG.baseUrl)
 
   const page = await browser.newPage()
-  const failedImages = new Set() // Track images that failed to load
+  const failedImages = new Set() // Track images that failed (store as URIs)
 
-  // Listen for failed image requests during page load
+  // Listen for failed image requests - convert to URI
   page.on('requestfailed', (request) => {
     if (request.resourceType() === 'image') {
-      failedImages.add(request.url())
+      const imageUri = toUri(request.url(), CONFIG.baseUrl)
+      if (imageUri) {
+        failedImages.add(imageUri)
+      }
     }
   })
 
   try {
-    // Load page with timeout from CONFIG
-    const response = await page.goto(url, {
+    // Load page with full URL
+    const response = await page.goto(fullUrl, {
       waitUntil: 'domcontentloaded',
       timeout: CONFIG.timeout,
     })
 
     // Track pages that fail to load
     if (!response || response.status() !== 200) {
-      // Get referrers (pages that link to this failed page)
-      const referrers = state.pages.has(url)
-        ? state.pages.get(url).incomingLinks
-        : []
+      const referrers = getReferrers(uri)
 
       state.errors.push({
-        url,
+        url: uri,
         error: `HTTP ${response?.status() || 'unknown'}`,
         referrers,
       })
@@ -235,81 +323,55 @@ async function crawlPage(browser, url) {
       return
     }
 
-    // Detect redirects by comparing requested URL with final URL
-    // Ignore redirects that only add a trailing slash
-    const finalUrl = response.url()
-    const isTrailingSlashRedirect =
-      finalUrl === url + '/' || finalUrl + '/' === url
-
-    if (finalUrl !== url && !isTrailingSlashRedirect) {
+    // Detect redirects using helper
+    const redirectUri = shouldTrackRedirect(uri, response.url(), CONFIG.baseUrl)
+    if (redirectUri) {
       state.redirects.push({
-        from: url,
-        to: finalUrl,
+        from: uri,
+        to: redirectUri,
         status: response.status(),
       })
-      log(`  Redirect: ${url} -> ${finalUrl}`, 'yellow')
+      log(`  Redirect: ${uri} -> ${redirectUri}`, 'yellow')
     }
 
     // Extract links and images
     const { headerLinks, footerLinks, contentLinks, images } =
       await extractLinksAndImages(page)
 
-    // Initialize page data in state
-    if (!state.pages.has(url)) {
-      state.pages.set(url, {
-        outgoingLinks: {
-          header: [],
-          footer: [],
-          content: [],
-        },
-        images: [],
-        incomingLinks: [],
-        status: response.status(),
-      })
+    // Initialize page data using helper
+    if (!state.pages.has(uri)) {
+      state.pages.set(uri, createPageData(response.status()))
     }
 
-    const pageData = state.pages.get(url)
+    const pageData = state.pages.get(uri)
 
     // Helper function to process links from a specific category
     const processLinks = (links, category) => {
       for (const link of links) {
-        const normalizedUrl = normalizeUrl(link.href, url)
-        if (!normalizedUrl) continue
+        const linkFullUrl = normalizeUrl(link.href, fullUrl)
+        if (!linkFullUrl) continue
 
         // Check if link is internal or external
-        if (isInternalUrl(normalizedUrl, CONFIG.baseUrl)) {
-          // Internal link - add to categorized outgoing links
-          pageData.outgoingLinks[category].push(normalizedUrl)
+        if (isInternalUrl(linkFullUrl, CONFIG.baseUrl)) {
+          const linkUri = toUri(linkFullUrl, CONFIG.baseUrl)
+          if (!linkUri) continue
+
+          // Internal link - add to categorized outgoing links (as URI)
+          pageData.outgoingLinks[category].push(linkUri)
 
           // Track incoming links for orphan detection
-          if (!state.pages.has(normalizedUrl)) {
-            state.pages.set(normalizedUrl, {
-              outgoingLinks: {
-                header: [],
-                footer: [],
-                content: [],
-              },
-              images: [],
-              incomingLinks: [],
-            })
+          if (!state.pages.has(linkUri)) {
+            state.pages.set(linkUri, createPageData())
           }
-          state.pages.get(normalizedUrl).incomingLinks.push(url)
+          state.pages.get(linkUri).incomingLinks.push(uri)
 
-          // Add to crawl queue if not yet visited (O(1) Set lookup)
-          if (!state.visited.has(normalizedUrl)) {
-            state.toVisit.add(normalizedUrl)
+          // Add to crawl queue if not yet visited
+          if (!state.visited.has(linkUri)) {
+            state.toVisit.add(linkUri)
           }
         } else {
-          // External link - track the domain
-          try {
-            const linkHostname = new URL(normalizedUrl).hostname
-            if (!state.externalLinks.has(linkHostname)) {
-              state.externalLinks.set(linkHostname, { pages: new Set() })
-            }
-            state.externalLinks.get(linkHostname).pages.add(url)
-          } catch (e) {
-            // Invalid URL, skip
-          }
+          // External link - store full URL on this page
+          pageData.externalLinks.push(linkFullUrl)
         }
       }
     }
@@ -321,33 +383,31 @@ async function crawlPage(browser, url) {
 
     // Process images and check against failed requests
     for (const image of images) {
-      const imageUrl = normalizeUrl(image.src, url)
-      if (imageUrl) {
-        pageData.images.push(imageUrl)
+      const imageFullUrl = normalizeUrl(image.src, fullUrl)
+      if (!imageFullUrl) continue
 
-        // Check if image failed to load during page rendering
-        if (failedImages.has(imageUrl)) {
-          // Add or update broken image entry with deduplication
-          if (!state.brokenImages.has(imageUrl)) {
-            state.brokenImages.set(imageUrl, {
-              pages: [url],
-              alt: image.alt,
-            })
-          } else {
-            // Add this page to the list of pages with this broken image
-            state.brokenImages.get(imageUrl).pages.push(url)
-          }
+      const imageUri = toUri(imageFullUrl, CONFIG.baseUrl)
+      if (!imageUri) continue
+
+      pageData.images.push(imageUri)
+
+      // Check if image failed to load (compare URIs)
+      if (failedImages.has(imageUri)) {
+        if (!state.brokenImages.has(imageUri)) {
+          state.brokenImages.set(imageUri, {
+            pages: [uri],
+            alt: image.alt,
+          })
+        } else {
+          state.brokenImages.get(imageUri).pages.push(uri)
         }
       }
     }
   } catch (error) {
-    // Get referrers (pages that link to this failed page)
-    const referrers = state.pages.has(url)
-      ? state.pages.get(url).incomingLinks
-      : []
+    const referrers = getReferrers(uri)
 
     state.errors.push({
-      url,
+      url: uri,
       error: error.message,
       referrers,
     })
@@ -365,8 +425,8 @@ async function validateLinks(browser) {
   const page = await browser.newPage()
   const allLinks = new Set()
 
-  // Collect all unique internal links from crawled pages
-  for (const [url, data] of state.pages) {
+  // Collect all unique internal link URIs from crawled pages
+  for (const [uri, data] of state.pages) {
     // Collect from all three categories
     for (const link of data.outgoingLinks.header) {
       allLinks.add(link)
@@ -380,41 +440,38 @@ async function validateLinks(browser) {
   }
 
   // Check links that weren't visited during crawl
-  // Only check internal links (external links are already filtered out)
-  for (const link of allLinks) {
-    if (!state.visited.has(link)) {
+  for (const linkUri of allLinks) {
+    if (!state.visited.has(linkUri)) {
       try {
-        log(`  Checking unvisited link: ${link}`, 'yellow')
-        const response = await page.request.head(link, { timeout: 10000 })
+        log(`  Checking unvisited link: ${linkUri}`, 'yellow')
+
+        // Convert URI to full URL for request
+        const fullUrl = uriToUrl(linkUri, CONFIG.baseUrl)
+        const response = await page.request.head(fullUrl, { timeout: 10000 })
+
         if (response.status() === 404) {
-          // Use existing incomingLinks tracking instead of searching
-          const referrers = state.pages.has(link)
-            ? state.pages.get(link).incomingLinks
-            : []
+          const referrers = getReferrers(linkUri)
 
           state.brokenLinks.push({
-            url: link,
+            url: linkUri,
             referrers,
             status: 404,
           })
         }
 
-        // Add delay between validation requests to avoid overwhelming the server
+        // Add delay between validation requests
         if (CONFIG.delayBetweenRequests > 0) {
           await sleep(CONFIG.delayBetweenRequests)
         }
       } catch (error) {
-        // Track validation errors consistently with crawl errors
-        const referrers = state.pages.has(link)
-          ? state.pages.get(link).incomingLinks
-          : []
+        const referrers = getReferrers(linkUri)
 
         state.errors.push({
-          url: link,
+          url: linkUri,
           error: `Validation failed: ${error.message}`,
           referrers,
         })
-        log(`  Error checking ${link}: ${error.message}`, 'red')
+        log(`  Error checking ${linkUri}: ${error.message}`, 'red')
       }
     }
   }
@@ -425,14 +482,13 @@ async function validateLinks(browser) {
 // Find pages with no incoming links (orphaned/isolated pages)
 function analyzeIsolatedPages() {
   const isolated = []
-  const homepage = normalizeUrl('/', CONFIG.baseUrl)
 
-  for (const [url, data] of state.pages) {
+  for (const [uri, data] of state.pages) {
     // Skip homepage from isolation check
-    if (url === homepage || url === CONFIG.baseUrl) continue
+    if (uri === '/') continue
 
     // Check if page has incoming links (excluding self-references)
-    const incomingLinks = data.incomingLinks.filter((link) => link !== url)
+    const incomingLinks = data.incomingLinks.filter((link) => link !== uri)
     if (incomingLinks.length === 0) {
       // Count total outgoing links across all categories
       const totalOutgoingLinks =
@@ -441,7 +497,7 @@ function analyzeIsolatedPages() {
         data.outgoingLinks.content.length
 
       isolated.push({
-        url,
+        url: uri,
         outgoingLinks: totalOutgoingLinks,
       })
     }
@@ -456,7 +512,7 @@ async function loadSitemap(browser) {
   log(`Attempting to load sitemap from: ${sitemapUrl}`, 'blue')
 
   const page = await browser.newPage()
-  const urls = []
+  const uris = []
 
   try {
     const response = await page.goto(sitemapUrl, {
@@ -483,20 +539,20 @@ async function loadSitemap(browser) {
     while ((match = locRegex.exec(content)) !== null) {
       const url = match[1].trim()
       if (url && isInternalUrl(url, CONFIG.baseUrl)) {
-        const normalized = normalizeUrl(url, CONFIG.baseUrl)
-        if (normalized) {
-          urls.push(normalized)
+        const uri = toUri(url, CONFIG.baseUrl)
+        if (uri) {
+          uris.push(uri)
         }
       }
     }
 
-    if (urls.length === 0) {
+    if (uris.length === 0) {
       log(`  Sitemap found but contains no valid URLs`, 'yellow')
       return null
     }
 
-    log(`  Found ${urls.length} URLs in sitemap`, 'green')
-    return urls
+    log(`  Found ${uris.length} URLs in sitemap`, 'green')
+    return uris
   } catch (error) {
     log(`  Error loading sitemap: ${error.message}`, 'yellow')
     return null
@@ -519,19 +575,19 @@ function generateReport() {
     )
   }, 0)
 
-  // Create a Set of isolated page URLs for quick lookup
+  // Create a Set of isolated page URIs for quick lookup
   const isolatedSet = new Set(isolated.map((p) => p.url))
 
   // Build page-centric report structure
   const pages = {}
-  for (const [url, data] of state.pages.entries()) {
-    const strippedUrl = stripBaseUrl(url, CONFIG.baseUrl)
+  for (const [uri, data] of state.pages.entries()) {
+    // URI is already in the format we want - no stripping needed
 
     // Find any redirect that originated from this page
-    const redirect = state.redirects.find((r) => r.from === url)
+    const redirect = state.redirects.find((r) => r.from === uri)
 
     // Find any error that occurred on this page
-    const error = state.errors.find((e) => e.url === url)
+    const error = state.errors.find((e) => e.url === uri)
 
     // Find broken links that this page links to
     const brokenLinksFromThisPage = state.brokenLinks
@@ -542,51 +598,38 @@ function generateReport() {
           data.outgoingLinks.content.includes(bl.url),
       )
       .map((bl) => ({
-        url: stripBaseUrl(bl.url, CONFIG.baseUrl),
+        url: bl.url, // Already a URI
         status: bl.status,
       }))
 
     // Find broken images on this page
     const brokenImagesOnPage = Array.from(state.brokenImages.entries())
-      .filter(([imageUrl, imageData]) => imageData.pages.includes(url))
-      .map(([imageUrl, imageData]) => ({
-        url: stripBaseUrl(imageUrl, CONFIG.baseUrl),
+      .filter(([imageUri, imageData]) => imageData.pages.includes(uri))
+      .map(([imageUri, imageData]) => ({
+        url: imageUri, // Already a URI
         alt: imageData.alt,
       }))
 
-    // Find external domains linked from this page
-    const externalDomainsFromPage = []
-    for (const [domain, domainData] of state.externalLinks.entries()) {
-      if (domainData.pages.has(url)) {
-        externalDomainsFromPage.push(domain)
-      }
-    }
+    // Deduplicate incoming links (already URIs)
+    const uniqueIncomingLinks = [...new Set(data.incomingLinks)]
 
-    // Deduplicate and strip incoming links
-    const uniqueIncomingLinks = [...new Set(data.incomingLinks)].map((link) =>
-      stripBaseUrl(link, CONFIG.baseUrl),
-    )
+    // Deduplicate external links (full URLs)
+    const uniqueExternalLinks = [...new Set(data.externalLinks)]
 
-    pages[strippedUrl] = {
+    pages[uri] = {
       incomingLinks: uniqueIncomingLinks,
-      isIsolated: isolatedSet.has(url),
+      isIsolated: isolatedSet.has(uri),
       outgoingLinks: {
-        header: data.outgoingLinks.header.map((link) =>
-          stripBaseUrl(link, CONFIG.baseUrl),
-        ),
-        footer: data.outgoingLinks.footer.map((link) =>
-          stripBaseUrl(link, CONFIG.baseUrl),
-        ),
-        content: data.outgoingLinks.content.map((link) =>
-          stripBaseUrl(link, CONFIG.baseUrl),
-        ),
+        header: data.outgoingLinks.header, // Already URIs
+        footer: data.outgoingLinks.footer, // Already URIs
+        content: data.outgoingLinks.content, // Already URIs
       },
-      externalDomains: externalDomainsFromPage,
+      externalLinks: uniqueExternalLinks, // Full URLs
       imagesCount: data.images.length,
       issues: {
         redirect: redirect
           ? {
-              to: stripBaseUrl(redirect.to, CONFIG.baseUrl),
+              to: redirect.to, // Already a URI
               status: redirect.status,
             }
           : null,
@@ -594,6 +637,19 @@ function generateReport() {
         brokenLinks: brokenLinksFromThisPage,
         brokenImages: brokenImagesOnPage,
       },
+    }
+  }
+
+  // Count unique external domains across all pages
+  const allExternalDomains = new Set()
+  for (const pageData of state.pages.values()) {
+    for (const externalUrl of pageData.externalLinks) {
+      try {
+        const domain = new URL(externalUrl).hostname
+        allExternalDomains.add(domain)
+      } catch (e) {
+        // Invalid URL, skip
+      }
     }
   }
 
@@ -608,7 +664,7 @@ function generateReport() {
       redirects: state.redirects.length,
       isolatedPages: isolated.length,
       errors: state.errors.length,
-      externalDomains: state.externalLinks.size,
+      externalDomains: allExternalDomains.size,
     },
     pages: pages,
   }
@@ -756,14 +812,14 @@ async function main() {
   const browser = await chromium.launch({ headless: true })
 
   try {
-    // Try to load sitemap.xml to get initial list of URLs
-    const sitemapUrls = await loadSitemap(browser)
+    // Try to load sitemap.xml to get initial list of URIs
+    const sitemapUris = await loadSitemap(browser)
 
-    if (sitemapUrls && sitemapUrls.length > 0) {
-      // Use sitemap URLs as starting point
+    if (sitemapUris && sitemapUris.length > 0) {
+      // Use sitemap URIs as starting point
       log(`Using sitemap URLs as crawl queue`, 'green')
-      for (const url of sitemapUrls) {
-        state.toVisit.add(url)
+      for (const uri of sitemapUris) {
+        state.toVisit.add(uri)
       }
     } else {
       // Fall back to starting from homepage
@@ -772,17 +828,17 @@ async function main() {
         `   This may miss pages not linked from the site navigation\n`,
         'yellow',
       )
-      state.toVisit.add(CONFIG.baseUrl)
+      state.toVisit.add('/') // Always use '/' for homepage
     }
 
     log('') // Empty line before crawl starts
 
-    // Crawl pages breadth-first until queue empty or hit CONFIG.maxPages
+    // Crawl pages until queue empty or hit CONFIG.maxPages
     while (state.toVisit.size > 0 && state.visited.size < CONFIG.maxPages) {
-      // Get and remove first URL from Set (convert to array to get first element)
-      const url = state.toVisit.values().next().value
-      state.toVisit.delete(url)
-      await crawlPage(browser, url)
+      // Get and remove first URI from Set
+      const uri = state.toVisit.values().next().value
+      state.toVisit.delete(uri)
+      await crawlPage(browser, uri)
 
       // Add delay between requests to avoid overwhelming the server
       if (state.toVisit.size > 0 && CONFIG.delayBetweenRequests > 0) {
