@@ -371,14 +371,167 @@ function generateHTML(report, layers, pageMetadata, stats) {
       border-bottom: 1px solid #e5e7eb;
       padding: 1rem 2rem;
       display: flex;
+      gap: 1.5rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .filter-group {
+      display: flex;
       gap: 1rem;
       align-items: center;
+    }
+
+    .filter-label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .filter-label input[type="checkbox"] {
+      cursor: pointer;
+    }
+
+    #search-box {
+      padding: 0.5rem 1rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+      min-width: 250px;
+    }
+
+    #search-box:focus {
+      outline: none;
+      border-color: #f05138;
+      box-shadow: 0 0 0 3px rgba(240, 81, 56, 0.1);
     }
 
     #viz-container {
       flex: 1;
       overflow: auto;
       position: relative;
+      display: flex;
+    }
+
+    #detail-panel {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      width: 350px;
+      max-height: calc(100% - 2rem);
+      background: white;
+      border-radius: 0.5rem;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      overflow-y: auto;
+      display: none;
+      z-index: 100;
+    }
+
+    #detail-panel.visible {
+      display: block;
+    }
+
+    .detail-header {
+      padding: 1rem;
+      border-bottom: 2px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .detail-title {
+      font-weight: 600;
+      font-size: 1rem;
+      color: #111827;
+      word-break: break-all;
+      flex: 1;
+    }
+
+    .detail-close {
+      cursor: pointer;
+      color: #6b7280;
+      font-size: 1.5rem;
+      line-height: 1;
+      padding: 0 0.5rem;
+      margin: -0.25rem 0;
+    }
+
+    .detail-close:hover {
+      color: #111827;
+    }
+
+    .detail-section {
+      padding: 1rem;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .detail-section:last-child {
+      border-bottom: none;
+    }
+
+    .detail-section-title {
+      font-weight: 600;
+      font-size: 0.875rem;
+      color: #6b7280;
+      margin-bottom: 0.5rem;
+      text-transform: uppercase;
+    }
+
+    .detail-item {
+      margin: 0.5rem 0;
+      font-size: 0.875rem;
+    }
+
+    .detail-label {
+      font-weight: 600;
+      color: #374151;
+    }
+
+    .detail-value {
+      color: #6b7280;
+    }
+
+    .link-list {
+      margin-top: 0.5rem;
+    }
+
+    .link-item {
+      padding: 0.25rem 0.5rem;
+      margin: 0.25rem 0;
+      background: #f9fafb;
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+      word-break: break-all;
+      color: #374151;
+    }
+
+    .issue-item {
+      padding: 0.5rem;
+      margin: 0.5rem 0;
+      background: #fef2f2;
+      border-left: 3px solid #ef4444;
+      border-radius: 0.25rem;
+      font-size: 0.875rem;
+    }
+
+    .node.dimmed circle {
+      opacity: 0.2;
+    }
+
+    .node.dimmed text {
+      opacity: 0.2;
+    }
+
+    .node.highlighted circle {
+      stroke: #f05138;
+      stroke-width: 4;
+    }
+
+    .link.dimmed {
+      opacity: 0.1;
     }
 
     #visualization {
@@ -421,6 +574,17 @@ function generateHTML(report, layers, pageMetadata, stats) {
       font-size: 12px;
       font-weight: 600;
       fill: #6b7280;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .layer-label:hover {
+      fill: #111827;
+    }
+
+    .layer-label.collapsed {
+      fill: #9ca3af;
+      text-decoration: line-through;
     }
 
     /* Legend */
@@ -479,11 +643,33 @@ function generateHTML(report, layers, pageMetadata, stats) {
     </div>
 
     <div id="controls">
-      <span style="font-size: 0.875rem; color: #6b7280;">Interactive features coming soon...</span>
+      <div class="filter-group">
+        <span style="font-weight: 600; font-size: 0.875rem;">Filters:</span>
+        <label class="filter-label">
+          <input type="checkbox" id="filter-errors" checked>
+          <span>Show Errors</span>
+        </label>
+        <label class="filter-label">
+          <input type="checkbox" id="filter-isolated" checked>
+          <span>Show Isolated</span>
+        </label>
+        <label class="filter-label">
+          <input type="checkbox" id="filter-healthy" checked>
+          <span>Show Healthy</span>
+        </label>
+      </div>
+      <input type="text" id="search-box" placeholder="Search pages by URL...">
     </div>
 
     <div id="viz-container">
       <svg id="visualization"></svg>
+      <div id="detail-panel">
+        <div class="detail-header">
+          <div class="detail-title" id="detail-url"></div>
+          <div class="detail-close" id="detail-close">&times;</div>
+        </div>
+        <div id="detail-content"></div>
+      </div>
       <div id="legend">
         <div style="font-weight: 600; margin-bottom: 0.5rem;">Status</div>
         <div class="legend-item">
@@ -676,6 +862,18 @@ function generateHTML(report, layers, pageMetadata, stats) {
           .attr('stroke-width', isNavLayer ? 2 : 1)
           .attr('stroke-dasharray', isNavLayer ? '8,4' : '4,4')
           .attr('opacity', isNavLayer ? 0.5 : 0.3);
+
+        // Add layer label
+        const layerName = layerNum === 0 ? 'Home' :
+                         layerNum === 1 ? 'Navigation' :
+                         \`Layer \${layerNum}\`;
+        layerGuides.append('text')
+          .attr('class', 'layer-label')
+          .attr('data-layer', layerNum)
+          .attr('x', centerX + radius)
+          .attr('y', centerY - 5)
+          .attr('text-anchor', 'middle')
+          .text(layerName);
       }
     });
 
@@ -691,6 +889,15 @@ function generateHTML(report, layers, pageMetadata, stats) {
         .attr('stroke', '#f97316')
         .attr('stroke-width', 2)
         .attr('stroke-dasharray', '4,4');
+
+      // Add isolated layer label
+      layerGuides.append('text')
+        .attr('class', 'layer-label')
+        .attr('data-layer', 'isolated')
+        .attr('x', centerX + isolatedRadius)
+        .attr('y', centerY - 5)
+        .attr('text-anchor', 'middle')
+        .text('Isolated');
     }
 
     // Draw links
@@ -709,12 +916,8 @@ function generateHTML(report, layers, pageMetadata, stats) {
       .attr('r', d => getNodeSize(d))
       .attr('fill', d => getNodeColor(d.id, d))
       .on('click', (event, d) => {
-        // Calculate depth (clicks from home)
-        const depth = d.layer === 0 ? 0 :
-                      d.layer === 1 ? 'Navigation' :
-                      d.layer === 'isolated' ? 'Isolated' :
-                      \`\${d.layer - 1} clicks\`;
-        alert(\`Page: \${d.id}\\nLayer: \${d.layer}\\nDepth: \${depth}\\nStatus: \${d.status}\\nIncoming: \${d.incomingCount}\\nOutgoing: \${d.outgoingCount}\`);
+        showDetailPanel(d);
+        event.stopPropagation();
       })
       .call(d3.drag()
         .on('start', dragstarted)
@@ -813,6 +1016,308 @@ function generateHTML(report, layers, pageMetadata, stats) {
         d.fy = null;
       }
     }
+
+    // Detail panel functionality
+    function showDetailPanel(nodeData) {
+      const panel = document.getElementById('detail-panel');
+      const urlEl = document.getElementById('detail-url');
+      const contentEl = document.getElementById('detail-content');
+
+      urlEl.textContent = nodeData.id;
+
+      const pageData = DATA.pages[nodeData.id] || {};
+      const depth = nodeData.layer === 0 ? '0 (Home)' :
+                    nodeData.layer === 1 ? '1 (Navigation)' :
+                    nodeData.layer === 'isolated' ? 'Isolated' :
+                    \`\${nodeData.layer - 1} clicks\`;
+
+      let html = \`
+        <div class="detail-section">
+          <div class="detail-section-title">Page Info</div>
+          <div class="detail-item">
+            <span class="detail-label">Status:</span>
+            <span class="detail-value">\${nodeData.status}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Layer:</span>
+            <span class="detail-value">\${nodeData.layer}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Depth from home:</span>
+            <span class="detail-value">\${depth}</span>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Type:</span>
+            <span class="detail-value">\${nodeData.type}</span>
+          </div>
+        </div>
+      \`;
+
+      // Incoming links
+      if (pageData.incomingLinks && pageData.incomingLinks.length > 0) {
+        html += \`
+          <div class="detail-section">
+            <div class="detail-section-title">Incoming Links (\${pageData.incomingLinks.length})</div>
+            <div class="link-list">
+        \`;
+        pageData.incomingLinks.slice(0, 10).forEach(link => {
+          html += \`<div class="link-item">\${link}</div>\`;
+        });
+        if (pageData.incomingLinks.length > 10) {
+          html += \`<div class="link-item" style="font-style: italic;">... and \${pageData.incomingLinks.length - 10} more</div>\`;
+        }
+        html += \`</div></div>\`;
+      }
+
+      // Outgoing links
+      const outgoing = pageData.outgoingLinks || {};
+      const totalOutgoing = (outgoing.header?.length || 0) + (outgoing.footer?.length || 0) + (outgoing.content?.length || 0);
+      if (totalOutgoing > 0) {
+        html += \`
+          <div class="detail-section">
+            <div class="detail-section-title">Outgoing Links (\${totalOutgoing})</div>
+        \`;
+
+        if (outgoing.header && outgoing.header.length > 0) {
+          html += \`<div style="margin-top: 0.5rem; font-weight: 600; font-size: 0.75rem; color: #3b82f6;">Header (\${outgoing.header.length})</div><div class="link-list">\`;
+          outgoing.header.slice(0, 5).forEach(link => {
+            html += \`<div class="link-item">\${link}</div>\`;
+          });
+          if (outgoing.header.length > 5) {
+            html += \`<div class="link-item" style="font-style: italic;">... and \${outgoing.header.length - 5} more</div>\`;
+          }
+          html += \`</div>\`;
+        }
+
+        if (outgoing.footer && outgoing.footer.length > 0) {
+          html += \`<div style="margin-top: 0.5rem; font-weight: 600; font-size: 0.75rem; color: #14b8a6;">Footer (\${outgoing.footer.length})</div><div class="link-list">\`;
+          outgoing.footer.slice(0, 5).forEach(link => {
+            html += \`<div class="link-item">\${link}</div>\`;
+          });
+          if (outgoing.footer.length > 5) {
+            html += \`<div class="link-item" style="font-style: italic;">... and \${outgoing.footer.length - 5} more</div>\`;
+          }
+          html += \`</div>\`;
+        }
+
+        if (outgoing.content && outgoing.content.length > 0) {
+          html += \`<div style="margin-top: 0.5rem; font-weight: 600; font-size: 0.75rem; color: #6b7280;">Content (\${outgoing.content.length})</div><div class="link-list">\`;
+          outgoing.content.slice(0, 5).forEach(link => {
+            html += \`<div class="link-item">\${link}</div>\`;
+          });
+          if (outgoing.content.length > 5) {
+            html += \`<div class="link-item" style="font-style: italic;">... and \${outgoing.content.length - 5} more</div>\`;
+          }
+          html += \`</div>\`;
+        }
+
+        html += \`</div>\`;
+      }
+
+      // Issues
+      const issues = pageData.issues || {};
+      const hasIssues = issues.error || (issues.brokenLinks && issues.brokenLinks.length > 0) ||
+                        (issues.brokenImages && issues.brokenImages.length > 0);
+
+      if (hasIssues) {
+        html += \`<div class="detail-section"><div class="detail-section-title">Issues</div>\`;
+
+        if (issues.error) {
+          html += \`<div class="issue-item"><strong>Error:</strong> \${issues.error}</div>\`;
+        }
+
+        if (issues.brokenLinks && issues.brokenLinks.length > 0) {
+          html += \`<div class="issue-item"><strong>Broken Links (\${issues.brokenLinks.length}):</strong><div class="link-list">\`;
+          issues.brokenLinks.forEach(link => {
+            html += \`<div class="link-item">\${link}</div>\`;
+          });
+          html += \`</div></div>\`;
+        }
+
+        if (issues.brokenImages && issues.brokenImages.length > 0) {
+          html += \`<div class="issue-item"><strong>Broken Images (\${issues.brokenImages.length}):</strong><div class="link-list">\`;
+          issues.brokenImages.forEach(img => {
+            html += \`<div class="link-item">\${img}</div>\`;
+          });
+          html += \`</div></div>\`;
+        }
+
+        html += \`</div>\`;
+      }
+
+      // Images
+      if (pageData.imagesCount > 0) {
+        html += \`
+          <div class="detail-section">
+            <div class="detail-section-title">Images</div>
+            <div class="detail-item">
+              <span class="detail-label">Total images:</span>
+              <span class="detail-value">\${pageData.imagesCount}</span>
+            </div>
+          </div>
+        \`;
+      }
+
+      contentEl.innerHTML = html;
+      panel.classList.add('visible');
+    }
+
+    // Close detail panel
+    document.getElementById('detail-close').addEventListener('click', () => {
+      document.getElementById('detail-panel').classList.remove('visible');
+    });
+
+    // Close panel when clicking outside
+    svg.on('click', () => {
+      document.getElementById('detail-panel').classList.remove('visible');
+    });
+
+    // Filter functionality
+    let activeFilters = {
+      errors: true,
+      isolated: true,
+      healthy: true
+    };
+
+    function applyFilters() {
+      nodeGroups.each(function(d) {
+        const node = d3.select(this);
+        let visible = true;
+
+        // Check status filters
+        if (d.status === 'error' && !activeFilters.errors) visible = false;
+        if (d.status === 'isolated' && !activeFilters.isolated) visible = false;
+        if (d.status === 'healthy' && !activeFilters.healthy) visible = false;
+
+        // Apply visibility
+        node.style('display', visible ? null : 'none');
+      });
+
+      // Update link visibility based on visible nodes
+      linkElements.each(function(d) {
+        const link = d3.select(this);
+        const sourceNode = nodes.find(n => n.id === d.source.id || n.id === d.source);
+        const targetNode = nodes.find(n => n.id === d.target.id || n.id === d.target);
+
+        const sourceVisible = nodeGroups.filter(n => n.id === sourceNode?.id).style('display') !== 'none';
+        const targetVisible = nodeGroups.filter(n => n.id === targetNode?.id).style('display') !== 'none';
+
+        link.style('display', (sourceVisible && targetVisible) ? null : 'none');
+      });
+    }
+
+    document.getElementById('filter-errors').addEventListener('change', (e) => {
+      activeFilters.errors = e.target.checked;
+      applyFilters();
+    });
+
+    document.getElementById('filter-isolated').addEventListener('change', (e) => {
+      activeFilters.isolated = e.target.checked;
+      applyFilters();
+    });
+
+    document.getElementById('filter-healthy').addEventListener('change', (e) => {
+      activeFilters.healthy = e.target.checked;
+      applyFilters();
+    });
+
+    // Search functionality
+    let searchTimeout;
+    document.getElementById('search-box').addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        const query = e.target.value.toLowerCase().trim();
+
+        if (query === '') {
+          // Clear search highlighting
+          nodeGroups.classed('dimmed', false);
+          nodeGroups.classed('highlighted', false);
+          linkElements.classed('dimmed', false);
+        } else {
+          // Highlight matching nodes
+          nodeGroups.each(function(d) {
+            const node = d3.select(this);
+            const matches = d.id.toLowerCase().includes(query);
+            node.classed('dimmed', !matches);
+            node.classed('highlighted', matches);
+          });
+
+          // Dim links that don't connect to highlighted nodes
+          linkElements.each(function(d) {
+            const link = d3.select(this);
+            const sourceNode = nodes.find(n => n.id === d.source.id || n.id === d.source);
+            const targetNode = nodes.find(n => n.id === d.target.id || n.id === d.target);
+
+            const sourceMatches = sourceNode?.id.toLowerCase().includes(query);
+            const targetMatches = targetNode?.id.toLowerCase().includes(query);
+
+            link.classed('dimmed', !sourceMatches && !targetMatches);
+          });
+        }
+      }, 300);
+    });
+
+    // Layer collapse/expand functionality
+    const collapsedLayers = new Set();
+
+    function toggleLayer(layer) {
+      const layerStr = String(layer);
+
+      if (collapsedLayers.has(layerStr)) {
+        collapsedLayers.delete(layerStr);
+      } else {
+        collapsedLayers.add(layerStr);
+      }
+
+      // Update node visibility
+      nodeGroups.each(function(d) {
+        const node = d3.select(this);
+        const isCollapsed = collapsedLayers.has(String(d.layer));
+
+        if (isCollapsed) {
+          node.style('display', 'none');
+        } else {
+          // Check if already hidden by filters
+          const currentDisplay = node.style('display');
+          if (currentDisplay === 'none' && !isCollapsed) {
+            // Don't show if hidden by filters - reapply filters
+            applyFilters();
+          }
+        }
+      });
+
+      // Update layer label styling
+      d3.selectAll('.layer-label').each(function() {
+        const label = d3.select(this);
+        const labelLayer = label.attr('data-layer');
+        label.classed('collapsed', collapsedLayers.has(labelLayer));
+      });
+
+      // Update link visibility
+      linkElements.each(function(d) {
+        const link = d3.select(this);
+        const sourceNode = nodes.find(n => n.id === d.source.id || n.id === d.source);
+        const targetNode = nodes.find(n => n.id === d.target.id || n.id === d.target);
+
+        const sourceCollapsed = collapsedLayers.has(String(sourceNode?.layer));
+        const targetCollapsed = collapsedLayers.has(String(targetNode?.layer));
+
+        if (sourceCollapsed || targetCollapsed) {
+          link.style('display', 'none');
+        } else {
+          // Check if visible by filters
+          const sourceVisible = nodeGroups.filter(n => n.id === sourceNode?.id).style('display') !== 'none';
+          const targetVisible = nodeGroups.filter(n => n.id === targetNode?.id).style('display') !== 'none';
+          link.style('display', (sourceVisible && targetVisible) ? null : 'none');
+        }
+      });
+    }
+
+    // Add click handlers to layer labels
+    d3.selectAll('.layer-label').on('click', function() {
+      const layer = d3.select(this).attr('data-layer');
+      toggleLayer(layer);
+    });
 
     console.log('Visualization rendered:', {
       nodes: nodes.length,
