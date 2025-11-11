@@ -153,13 +153,27 @@ function toUri(url, baseUrl) {
   const normalized = normalizeUrl(url, baseUrl)
   if (!normalized) return null
 
-  const uri = stripBaseUrl(normalized, baseUrl)
+  let uri = stripBaseUrl(normalized, baseUrl)
 
   // Ensure URI always starts with '/' for consistency
   if (uri === '') return '/'
   if (!uri.startsWith('/')) {
     // This shouldn't happen, but handle it defensively
-    return '/' + uri
+    uri = '/' + uri
+  }
+
+  // Normalize HTML pages to always include .html extension
+  // Jekyll serves pages both with and without .html, but we want consistent URIs
+  // Only apply to paths that look like HTML pages (no extension or .html extension)
+  // Skip if it already has .html, or has another extension, or ends with /
+  const hasExtension = /\.[^/.]+$/.test(uri.split('?')[0].split('#')[0])
+  const endsWithSlash = uri.split('?')[0].split('#')[0].endsWith('/')
+  const isHomepage = uri === '/' || uri.split('?')[0].split('#')[0] === '/'
+
+  if (!isHomepage && !endsWithSlash && !hasExtension) {
+    // Add .html extension to paths without extension (likely HTML pages)
+    const [path, queryAndHash] = uri.split(/([?#].*)/)
+    uri = path + '.html' + (queryAndHash || '')
   }
 
   return uri
