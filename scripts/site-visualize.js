@@ -89,7 +89,7 @@ function identifyHeaderFooterPages(pages) {
 
 /**
  * Calculate page depth using BFS from homepage
- * Header pages are assigned to Layer 1, footer pages to Layer 2
+ * Header and footer pages are both assigned to Layer 1 (navigation layer)
  * Other pages get depth based on shortest path via content links
  */
 function calculateLayers(pages) {
@@ -108,30 +108,25 @@ function calculateLayers(pages) {
   // Identify header/footer pages
   const navPages = identifyHeaderFooterPages(pages)
 
-  // Layer 1: Header pages (globally available in site navigation)
-  // Layer 2: Footer pages (globally available in site footer)
+  // Layer 1: All navigation pages (header and footer together)
   layers[1] = []
-  layers[2] = []
 
   navPages.all.forEach((uri) => {
     const inHeader = navPages.header.includes(uri)
     const inFooter = navPages.footer.includes(uri)
 
-    let type, layer
+    let type
     if (inHeader && inFooter) {
       type = 'header-footer'
-      layer = 1 // Prioritize header layer for pages in both
     } else if (inHeader) {
       type = 'header'
-      layer = 1
     } else {
       type = 'footer'
-      layer = 2
     }
 
-    layers[layer].push(uri)
+    layers[1].push(uri)
     pageMetadata[uri] = {
-      layer,
+      layer: 1,
       type,
       ...getPageStatus(pages[uri] || {}),
     }
@@ -140,21 +135,15 @@ function calculateLayers(pages) {
   // BFS to calculate depths for remaining pages
   // Since header/footer links appear on EVERY page, we start BFS from:
   // 1. Home page (depth 0)
-  // 2. Header pages (depth 1)
-  // 3. Footer pages (depth 2)
+  // 2. All navigation pages (header/footer at depth 1)
   // This ensures pages linked from global navigation get correct shallow depth
 
   const visited = new Set([homeUri, ...navPages.all])
   const queue = [{ uri: homeUri, depth: 0 }]
 
-  // Add header pages to queue at depth 1
-  navPages.header.forEach((uri) => {
+  // Add all nav pages to queue at depth 1
+  navPages.all.forEach((uri) => {
     queue.push({ uri, depth: 1 })
-  })
-
-  // Add footer pages to queue at depth 2
-  navPages.footer.forEach((uri) => {
-    queue.push({ uri, depth: 2 })
   })
 
   while (queue.length > 0) {
@@ -175,8 +164,8 @@ function calculateLayers(pages) {
       if (!visited.has(linkUri)) {
         visited.add(linkUri)
         const newDepth = depth + 1
-        // Content pages start at Layer 3 (after header=1, footer=2)
-        const newLayer = newDepth + 2
+        // Content pages start at Layer 2 (after navigation=1)
+        const newLayer = newDepth + 1
 
         // Initialize layer array if needed
         if (!layers[newLayer]) {
@@ -299,12 +288,10 @@ function printSummary(stats, layers) {
       layer === '0'
         ? 'Home'
         : layer === '1'
-          ? 'Header'
-          : layer === '2'
-            ? 'Footer'
-            : layer === 'isolated'
-              ? 'Isolated'
-              : `Layer ${layer} (${parseInt(layer) - 2} clicks)`
+          ? 'Navigation (Header + Footer)'
+          : layer === 'isolated'
+            ? 'Isolated'
+            : `Layer ${layer} (${parseInt(layer) - 1} clicks)`
     log(`  ${layerName}: ${count} pages`, 'blue')
   }
 
@@ -636,20 +623,59 @@ function generateHTML(report, layers, pageMetadata, stats) {
       node.y = centerY + node.targetRadius * Math.sin(angle);
     });
 
+    // Fix header and footer nodes in circular arrangement on same layer
+    // Headers on top arc, footers on bottom arc
+    const headerNodes = nodes.filter(n => n.type === 'header' || n.type === 'header-footer');
+    const footerNodes = nodes.filter(n => n.type === 'footer' && n.type !== 'header-footer');
+
+    // Position header nodes evenly across top arc (from -π to 0)
+    headerNodes.forEach((node, i) => {
+      // Spread across top semicircle, starting from left going clockwise
+      const arcStart = -Math.PI; // Left (9 o'clock)
+      const arcEnd = 0; // Right (3 o'clock)
+      const arcRange = arcEnd - arcStart;
+      const angle = arcStart + (i / Math.max(headerNodes.length - 1, 1)) * arcRange;
+
+      node.fx = centerX + node.targetRadius * Math.cos(angle);
+      node.fy = centerY + node.targetRadius * Math.sin(angle);
+    });
+
+    // Position footer nodes evenly across bottom arc (from 0 to π)
+    footerNodes.forEach((node, i) => {
+      // Spread across bottom semicircle, starting from right going clockwise
+      const arcStart = 0; // Right (3 o'clock)
+      const arcEnd = Math.PI; // Left (9 o'clock)
+      const arcRange = arcEnd - arcStart;
+      const angle = arcStart + (i / Math.max(footerNodes.length - 1, 1)) * arcRange;
+
+      node.fx = centerX + node.targetRadius * Math.cos(angle);
+      node.fy = centerY + node.targetRadius * Math.sin(angle);
+    });
+
+    // Fix home page at center
+    const homeNode = nodes.find(n => n.layer === 0);
+    if (homeNode) {
+      homeNode.fx = centerX;
+      homeNode.fy = centerY;
+    }
+
     // Draw concentric circles for layer guides
     const layerGuides = g.append('g').attr('class', 'layer-guides');
 
     layerNumbers.forEach((layerNum) => {
       const radius = layerNum * radiusStep;
       if (radius > 0) {
+        // Make navigation layer (Layer 1) more prominent
+        const isNavLayer = layerNum === 1;
         layerGuides.append('circle')
           .attr('cx', centerX)
           .attr('cy', centerY)
           .attr('r', radius)
           .attr('fill', 'none')
-          .attr('stroke', '#e5e7eb')
-          .attr('stroke-width', 1)
-          .attr('stroke-dasharray', '4,4');
+          .attr('stroke', isNavLayer ? '#6366f1' : '#e5e7eb')
+          .attr('stroke-width', isNavLayer ? 2 : 1)
+          .attr('stroke-dasharray', isNavLayer ? '8,4' : '4,4')
+          .attr('opacity', isNavLayer ? 0.5 : 0.3);
       }
     });
 
@@ -671,9 +697,8 @@ function generateHTML(report, layers, pageMetadata, stats) {
     layerNumbers.forEach((layerNum) => {
       const radius = layerNum * radiusStep;
       const layerName = layerNum === 0 ? 'Home' :
-                        layerNum === 1 ? 'Header' :
-                        layerNum === 2 ? 'Footer' :
-                        \`Layer \${layerNum} (\${layerNum - 2} clicks)\`;
+                        layerNum === 1 ? 'Navigation' :
+                        \`Layer \${layerNum} (\${layerNum - 1} clicks)\`;
 
       if (radius > 0) {
         g.append('text')
@@ -783,8 +808,22 @@ function generateHTML(report, layers, pageMetadata, stats) {
 
     function dragended(event, d) {
       if (!event.active) simulation.alphaTarget(0);
-      d.fx = null;
-      d.fy = null;
+
+      // Keep header, footer, and home nodes fixed in their positions
+      if (d.layer === 0 || d.type === 'header' || d.type === 'footer' || d.type === 'header-footer') {
+        // Return to fixed position - recalculate based on type
+        if (d.layer === 0) {
+          d.fx = centerX;
+          d.fy = centerY;
+        } else {
+          // Keep the fixed position (already set earlier)
+          // Don't set fx/fy to null
+        }
+      } else {
+        // Allow content nodes to move freely after drag
+        d.fx = null;
+        d.fy = null;
+      }
     }
 
     console.log('Visualization rendered:', {

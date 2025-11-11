@@ -19,7 +19,7 @@
 - **Library**: D3.js for SVG rendering and force simulation
 - **Format**: Node.js script generates standalone HTML file
 - **Navigation Metric**: Number of clicks from home page
-- **Header/Footer**: Separate concentric rings (Layer 1 and Layer 2)
+- **Navigation Layer**: Single ring with headers on top arc, footers on bottom arc
 
 ## Progress Tracking
 
@@ -119,23 +119,25 @@
 ```
                     Isolated Ring (outermost)
                   /                           \
-              Layer 8                     Layer 7
+              Layer 7                     Layer 6
            /                                       \
-       Layer 6                                 Layer 5
+       Layer 5                                 Layer 4
       /                                               \
-   Layer 4                                         Layer 3
+   Layer 3                                         Layer 2
     /                                                     \
-  Layer 2 (Footer)              [Home]            Layer 2 (Footer)
-    \                              |                     /
-     \                         Layer 1                 /
-      \                       (Header)               /
-       \                          |                 /
-        \_________________________|________________/
+  [Header Links - Top Arc]   [Home]      [Header Links - Top Arc]
+    \                           |                       /
+     \                      Layer 1                    /
+      \                  (Navigation)                 /
+       \                        |                    /
+        \  [Footer Links - Bottom Arc]             /
+         \_______________________________________ /
 
 Radial/Concentric Layout:
 - Home page at center
-- Each layer forms a ring at increasing radius
-- Force-directed simulation keeps nodes at target radius
+- Layer 1: Navigation ring (header on top arc, footer on bottom arc)
+- Each outer layer forms a ring at increasing radius
+- Force-directed simulation keeps content nodes at target radius
 - Link forces pull connected nodes together
 - Collision detection prevents overlap
 ```
@@ -361,12 +363,36 @@ User requested change from linear layered layout to force-directed radial layout
 - 440 pages visualized
 - 9 layers (8 max click depth)
 - Force simulation running with smooth animations
-- Drag interaction working
+- Drag interaction working (content nodes free, nav nodes fixed)
 - Layer guides visible
+- Header and footer nodes fixed in circular arrangement around center
 
 **Files Modified:**
 - `scripts/site-visualize.js` - Replaced fixed positioning with force simulation
 - `scripts/site-visualize.md` - Updated documentation
+
+**Force Parameter Refinements:**
+- ✅ Increased repelling force from -50 to -120 for better node spacing
+- ✅ Increased collision padding from 8px to 15px
+- ✅ Fixed header and footer nodes in circular positions
+- ✅ Made nav layer guide circles more prominent (colored, thicker)
+
+**Navigation Clarity:**
+- Navigation nodes (18 pages) on single Layer 1 circle
+- Header nodes (6 pages) positioned on top semicircle (blue)
+- Footer nodes (12 pages) positioned on bottom semicircle (teal)
+- Home node locked at center
+- Content nodes (Layer 2+) free to move with force simulation
+- Single navigation ring makes 1-click distance crystal clear
+
+**Latest Update - Combined Navigation Layer:**
+- ✅ Merged header and footer into single Layer 1 (navigation ring)
+- ✅ Headers positioned on top semicircle (180° arc)
+- ✅ Footers positioned on bottom semicircle (180° arc)
+- ✅ Updated BFS to treat all nav as depth 1
+- ✅ Navigation layer guide circle now purple (#6366f1)
+- ✅ Reduced total layers from 9 to 8 (max depth: 7 clicks to 6 clicks)
+- ✅ Improved visual clarity of navigation structure
 
 **Next Steps:**
 Phase 3: Interactivity (Steps 11-16 - not started)
