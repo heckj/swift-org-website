@@ -764,12 +764,14 @@ function generateHTML(report, layers, pageMetadata, stats) {
           const source = nodes.find(n => n.id === d.source);
           const target = nodes.find(n => n.id === d.target);
           // Shorter links within same layer, longer across layers
-          return Math.abs((source?.layer || 0) - (target?.layer || 0)) * 50 + 40;
+          const layerDiff = Math.abs((source?.layer || 0) - (target?.layer || 0));
+          // Much shorter base distance to keep things tighter
+          return layerDiff * 30 + 20;
         })
-        .strength(0.2))
-      .force('charge', d3.forceManyBody().strength(-120))
+        .strength(0.5))
+      .force('charge', d3.forceManyBody().strength(-80))
       .force('collision', d3.forceCollide().radius(d => getNodeSize(d) + 15).strength(1))
-      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(0.8))
+      .force('radial', d3.forceRadial(d => d.targetRadius, centerX, centerY).strength(1.5))
       .on('tick', ticked);
 
     function ticked() {
