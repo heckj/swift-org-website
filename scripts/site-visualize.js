@@ -89,7 +89,7 @@ function identifyHeaderFooterPages(pages) {
 
 /**
  * Calculate page depth using BFS from homepage
- * Header/footer pages are assigned to Layer 1
+ * Header pages are assigned to Layer 1, footer pages to Layer 2
  * Other pages get depth based on shortest path via content links
  */
 function calculateLayers(pages) {
@@ -108,17 +108,30 @@ function calculateLayers(pages) {
   // Identify header/footer pages
   const navPages = identifyHeaderFooterPages(pages)
 
-  // Layer 1: Header and footer pages (globally available navigation)
-  layers[1] = navPages.all
-  navPages.all.forEach((uri) => {
-    const type = navPages.header.includes(uri)
-      ? navPages.footer.includes(uri)
-        ? 'header-footer'
-        : 'header'
-      : 'footer'
+  // Layer 1: Header pages (globally available in site navigation)
+  // Layer 2: Footer pages (globally available in site footer)
+  layers[1] = []
+  layers[2] = []
 
+  navPages.all.forEach((uri) => {
+    const inHeader = navPages.header.includes(uri)
+    const inFooter = navPages.footer.includes(uri)
+
+    let type, layer
+    if (inHeader && inFooter) {
+      type = 'header-footer'
+      layer = 1 // Prioritize header layer for pages in both
+    } else if (inHeader) {
+      type = 'header'
+      layer = 1
+    } else {
+      type = 'footer'
+      layer = 2
+    }
+
+    layers[layer].push(uri)
     pageMetadata[uri] = {
-      layer: 1,
+      layer,
       type,
       ...getPageStatus(pages[uri] || {}),
     }
@@ -127,15 +140,21 @@ function calculateLayers(pages) {
   // BFS to calculate depths for remaining pages
   // Since header/footer links appear on EVERY page, we start BFS from:
   // 1. Home page (depth 0)
-  // 2. ALL header/footer pages (depth 1)
+  // 2. Header pages (depth 1)
+  // 3. Footer pages (depth 2)
   // This ensures pages linked from global navigation get correct shallow depth
 
   const visited = new Set([homeUri, ...navPages.all])
   const queue = [{ uri: homeUri, depth: 0 }]
 
-  // Add all header/footer pages to queue at depth 1
-  navPages.all.forEach((uri) => {
+  // Add header pages to queue at depth 1
+  navPages.header.forEach((uri) => {
     queue.push({ uri, depth: 1 })
+  })
+
+  // Add footer pages to queue at depth 2
+  navPages.footer.forEach((uri) => {
+    queue.push({ uri, depth: 2 })
   })
 
   while (queue.length > 0) {
@@ -156,7 +175,8 @@ function calculateLayers(pages) {
       if (!visited.has(linkUri)) {
         visited.add(linkUri)
         const newDepth = depth + 1
-        const newLayer = newDepth + 1 // +1 because Layer 1 is header/footer
+        // Content pages start at Layer 3 (after header=1, footer=2)
+        const newLayer = newDepth + 2
 
         // Initialize layer array if needed
         if (!layers[newLayer]) {
@@ -279,10 +299,12 @@ function printSummary(stats, layers) {
       layer === '0'
         ? 'Home'
         : layer === '1'
-          ? 'Header/Footer'
-          : layer === 'isolated'
-            ? 'Isolated'
-            : `Layer ${layer} (${parseInt(layer) - 1} clicks)`
+          ? 'Header'
+          : layer === '2'
+            ? 'Footer'
+            : layer === 'isolated'
+              ? 'Isolated'
+              : `Layer ${layer} (${parseInt(layer) - 2} clicks)`
     log(`  ${layerName}: ${count} pages`, 'blue')
   }
 
@@ -405,7 +427,7 @@ function generateHTML(report, layers, pageMetadata, stats) {
     }
 
     .link-header { stroke: #3b82f6; stroke-dasharray: 2,2; }
-    .link-footer { stroke: #8b5cf6; stroke-dasharray: 2,2; }
+    .link-footer { stroke: #14b8a6; stroke-dasharray: 2,2; }
 
     /* Layer labels */
     .layer-label {
@@ -493,9 +515,14 @@ function generateHTML(report, layers, pageMetadata, stats) {
           <div class="legend-color" style="background: #eab308"></div>
           <span>Warning</span>
         </div>
+        <div style="font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem;">Navigation</div>
         <div class="legend-item">
           <div class="legend-color" style="background: #3b82f6"></div>
-          <span>Header/Footer</span>
+          <span>Header Links</span>
+        </div>
+        <div class="legend-item">
+          <div class="legend-color" style="background: #14b8a6"></div>
+          <span>Footer Links</span>
         </div>
         <div style="font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem;">Node Size</div>
         <div style="font-size: 0.7rem; color: #6b7280; line-height: 1.4;">
@@ -513,7 +540,7 @@ function generateHTML(report, layers, pageMetadata, stats) {
     const colors = {
       'home': '#f05138',
       'header': '#3b82f6',
-      'footer': '#8b5cf6',
+      'footer': '#14b8a6',
       'header-footer': '#6366f1',
       'healthy': '#10b981',
       'error': '#ef4444',
@@ -634,8 +661,9 @@ function generateHTML(report, layers, pageMetadata, stats) {
     // Draw layer labels
     layerNumbers.forEach((layerNum, index) => {
       const layerName = layerNum === 0 ? 'Home' :
-                        layerNum === 1 ? 'Header/Footer' :
-                        \`Layer \${layerNum} (\${layerNum - 1} clicks)\`;
+                        layerNum === 1 ? 'Header' :
+                        layerNum === 2 ? 'Footer' :
+                        \`Layer \${layerNum} (\${layerNum - 2} clicks)\`;
 
       g.append('text')
         .attr('class', 'layer-label')
