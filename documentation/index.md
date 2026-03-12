@@ -1,23 +1,40 @@
 ---
-layout: page
+layout: new-layouts/base
 title: Documentation
 ---
 
-If you are new to Swift, you may want to check out these additional resources.
+<div class="get-started">
 
-<div class="links links-list-nostyle" markdown="1">
-- [Getting started guide](/getting-started/)
-- [Swift resources on developer.apple.com](https://developer.apple.com/swift/resources/){:target="_blank" class="link-external"}
+<!-- Hero -->
+
+{% include new-includes/components/doc-hero.html content = site.data.new-data.documentation.hero %}
+
+<!-- Language -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.language %}
+
+<!-- Tutorials -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.tutorials %}
+
+<!-- Tools -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.tools %}
+
+<!-- Editors -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.editors %}
+
+<!-- Interoperability -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.interop %}
+
+<!-- Platforms & SDKs -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.platforms %}
+
+<!-- Use Cases -->
+
+{% include new-includes/components/doc-card-grid.html content = site.data.new-data.documentation.use-cases %}
+
 </div>
-
-{%- for category in site.data.documentation %}
-## {{ category.header }}
-  <div>
-  {%- for entry in category.pages %}
-    <div>
-    <a href="{{ entry.url }}">{{ entry.title }}</a>{% if entry.description %}: {{ entry.description }}{% endif %}
-    </div>
-    <br/>
-  {% endfor %}
-  </div>
-{% endfor %}

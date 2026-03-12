@@ -1,0 +1,19 @@
+<div class="section card-grid">
+  <div class="content">
+    <h2>{{ include.content.title }}</h2>
+    {% if include.content.description %}
+    <p class="doc-grid-description">{{ include.content.description }}</p>
+    {% endif %}
+    <ul class="tertiary-cards {% if include.content.columns == 3 %}three-wide{% endif %}">
+      {% for card in include.content.cards %}
+      <li>
+        <div>
+          <span class="name">{{ card.name }}</span>
+          <span class="text">{{ card.description }}</span>
+          <a href="{{ card.url }}">{{ card.link_text }}</a>
+        </div>
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>

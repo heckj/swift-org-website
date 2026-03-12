@@ -1,0 +1,27 @@
+title: Tutorials
+columns: 3
+cards:
+  - name: Build a Package
+    description: Create a reusable Swift library using Swift Package Manager.
+    url: /getting-started/library-swiftpm/
+    link_text: Start tutorial
+
+  - name: Build a CLI Tool
+    description: Create a command-line tool with argument parsing and Swift Package Manager.
+    url: /getting-started/cli-swiftpm/
+    link_text: Start tutorial
+
+  - name: Getting Started with Server
+    description: Build performant server applications with Swift and deploy to the cloud.
+    url: 'https://docs.swift.org/getting-started-swift-server/tutorials/getting-started-swift-server/'
+    link_text: Start tutorial
+
+  - name: Embedded Swift
+    description: Develop efficient firmware for microcontrollers and constrained devices.
+    url: 'https://docs.swift.org/embedded/documentation/embedded/waystogetstarted/'
+    link_text: Start tutorial
+
+  - name: iOS, macOS, and more
+    description: Build apps for Apple platforms with Swift and Xcode.
+    url: 'https://developer.apple.com/swift/resources/'
+    link_text: Visit developer.apple.com

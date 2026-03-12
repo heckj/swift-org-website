@@ -1,0 +1,12 @@
+title: Use Cases
+columns: 2
+cards:
+  - name: Swift on Server
+    description: Guides and resources for building and deploying server-side applications with Swift.
+    url: /documentation/server/
+    link_text: View guides
+
+  - name: About Swift
+    description: A summary of Swift's core features, supported platforms, and open source projects.
+    url: /about/
+    link_text: Learn more

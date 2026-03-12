@@ -1,0 +1,27 @@
+title: Platforms & SDKs
+columns: 3
+cards:
+  - name: Static Linux SDK
+    description: Build Linux binaries with no system dependencies — not even the Swift runtime or C library.
+    url: /documentation/articles/static-linux-getting-started.html
+    link_text: Get started
+
+  - name: Swift SDK for Android
+    description: Cross-compile Swift packages for Android from macOS, Linux, or Windows.
+    url: /documentation/articles/swift-sdk-for-android-getting-started.html
+    link_text: Get started
+
+  - name: Swift SDK for WebAssembly
+    description: Compile Swift packages for WebAssembly and run them in browsers or on the server.
+    url: /documentation/articles/wasm-getting-started.html
+    link_text: Get started
+
+  - name: Embedded Swift
+    description: Produce compact binaries for bare-metal microcontrollers and constrained environments.
+    url: 'https://docs.swift.org/embedded/documentation/embedded/'
+    link_text: View docs
+
+  - name: Supported Platforms
+    description: See which operating systems, architectures, and environments Swift officially supports.
+    url: /platform-support/
+    link_text: View platforms

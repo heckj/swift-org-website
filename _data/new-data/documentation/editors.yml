@@ -1,0 +1,27 @@
+title: Editors
+columns: 3
+cards:
+  - name: Swift for VS Code
+    description: Full-featured Swift development with debugging, IntelliSense, and package management.
+    url: 'https://docs.swift.org/vscode/documentation/userdocs/'
+    link_text: Get started
+
+  - name: Cursor
+    description: AI-powered editor with built-in Swift support via SourceKit-LSP.
+    url: '#'
+    link_text: Learn more
+
+  - name: Neovim
+    description: Lightweight terminal editor with Swift support through SourceKit-LSP integration.
+    url: 'https://github.com/swiftlang/sourcekit-lsp/blob/main/Documentation/Editor%20Integration.md#neovim'
+    link_text: Setup guide
+
+  - name: Emacs
+    description: Extensible editor with Swift mode and LSP client support for Swift development.
+    url: 'https://github.com/swiftlang/sourcekit-lsp/blob/main/Documentation/Editor%20Integration.md#emacs'
+    link_text: Setup guide
+
+  - name: SourceKit-LSP
+    description: The Language Server Protocol implementation for Swift, powering editor features across all editors.
+    url: 'https://github.com/swiftlang/sourcekit-lsp/blob/main/Documentation/Editor%20Integration.md'
+    link_text: View integration guide
