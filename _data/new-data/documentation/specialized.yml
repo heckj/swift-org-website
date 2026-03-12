@@ -1,0 +1,17 @@
+title: Specialized Platforms
+columns: 3
+cards:
+  - name: Embedded Swift
+    description: A compilation and language mode that enables development of firmware for microcontrollers and constrained devices.
+    url: 'https://docs.swift.org/embedded/documentation/embedded/'
+    link_text: View docs
+
+  - name: WasmGuide
+    description: Compile Swift packages for WebAssembly and run them in browsers or on the server.
+    url: '#'
+    link_text: View guide
+
+  - name: Server Guides
+    description: Guides and resources for building and deploying server-side applications with Swift.
+    url: '#'
+    link_text: View guides

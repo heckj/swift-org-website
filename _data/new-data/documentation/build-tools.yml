@@ -1,0 +1,27 @@
+title: Build Tools
+columns: 3
+cards:
+  - name: Swift Package Manager
+    description: Manage the distribution and use of Swift packages, integrated with the Swift build system.
+    url: 'https://docs.swift.org/swiftpm/documentation/packagemanagerdocs/'
+    link_text: View docs
+
+  - name: PackageDescription
+    description: API reference for defining Swift package manifests, targets, products, and dependencies.
+    url: '#'
+    link_text: View reference
+
+  - name: PackagePlugin
+    description: API reference for creating Swift package plugins that extend the build system.
+    url: '#'
+    link_text: View reference
+
+  - name: DocC
+    description: Produce rich documentation for your Swift frameworks and packages from source comments and markdown.
+    url: /documentation/docc/
+    link_text: View docs
+
+  - name: Testing
+    description: A modern testing framework with expressive APIs, macros, and structured test organization.
+    url: 'https://swiftlang.github.io/swift-testing/documentation/testing/'
+    link_text: View docs

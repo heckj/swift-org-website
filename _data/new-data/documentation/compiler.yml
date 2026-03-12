@@ -1,0 +1,12 @@
+title: Compiler & Diagnostics
+columns: 2
+cards:
+  - name: Swift Compiler Diagnostics
+    description: Reference for understanding and resolving Swift compiler errors and warnings.
+    url: 'https://docs.swift.org/compiler/documentation/diagnostics/'
+    link_text: View diagnostics
+
+  - name: Tools and Editors
+    description: Set up your development environment with editor integrations and developer tools.
+    url: '#'
+    link_text: View guide

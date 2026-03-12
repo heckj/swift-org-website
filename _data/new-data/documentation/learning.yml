@@ -1,0 +1,22 @@
+title: Learning Swift
+columns: 2
+cards:
+  - name: The Swift Programming Language
+    description: The authoritative reference for Swift, with a guided tour, comprehensive guide, and formal language reference.
+    url: 'https://docs.swift.org/swift-book/documentation/the-swift-programming-language/'
+    link_text: Read the book
+
+  - name: Language Guides
+    description: Focused guides on specific Swift language features and concepts.
+    url: '#'
+    link_text: View guides
+
+  - name: API Guidelines
+    description: Conventions and idioms that make your code feel like a natural part of the Swift ecosystem.
+    url: /documentation/api-design-guidelines/
+    link_text: Read guidelines
+
+  - name: Migrating to Swift 6
+    description: Guidance for migrating your projects to the latest Swift version, including Swift 6 data race safety.
+    url: 'https://www.swift.org/migration/documentation/migrationguide/'
+    link_text: Read guide

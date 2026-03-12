@@ -290,6 +290,21 @@
         border-radius: 8px;
         margin-right: 13px;
       }
+
+      &.three-wide {
+        grid-template-columns: repeat(3, 1fr);
+
+        @media only screen and (max-width: 768px) {
+          grid-template-columns: 1fr;
+        }
+      }
+    }
+
+    .doc-grid-description {
+      text-align: center;
+      font-size: 17px;
+      max-width: 700px;
+      margin: -30px auto 40px;
     }
 
     .primary-cards {
